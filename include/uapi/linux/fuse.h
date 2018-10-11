@@ -121,6 +121,7 @@
  *  - add FUSE_COPY_FILE_RANGE
  *  - add FOPEN_CACHE_DIR
  *  - add FUSE_MAX_PAGES, add max_pages to init_out
+ *  - add FUSE_CACHE_SYMLINKS
  */
 
 #ifndef _LINUX_FUSE_H
@@ -259,6 +260,7 @@ struct fuse_file_lock {
  * FUSE_POSIX_ACL: filesystem supports posix acls
  * FUSE_ABORT_ERROR: reading the device after abort returns ECONNABORTED
  * FUSE_MAX_PAGES: init_out.max_pages contains the max number of req pages
+ * FUSE_CACHE_SYMLINKS: cache READLINK responses
  */
 #define FUSE_ASYNC_READ		(1 << 0)
 #define FUSE_POSIX_LOCKS	(1 << 1)
@@ -285,6 +287,7 @@ struct fuse_file_lock {
 <<<<<<< HEAD
 =======
 #define FUSE_MAX_PAGES		(1 << 22)
+#define FUSE_CACHE_SYMLINKS	(1 << 23)
 #define FUSE_PASSTHROUGH	(1 << 31)
 >>>>>>> 57692b9e119a (BACKPORT: fuse: add max_pages to init_out)
 
