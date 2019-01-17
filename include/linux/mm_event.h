@@ -2,6 +2,10 @@
 #ifndef _LINUX_MM_EVENT_H
 #define _LINUX_MM_EVENT_H
 
+/*
+ * These enums are exposed to userspace via the ftrace trace_pipe_raw endpoint
+ * and are an ABI. Userspace tools depend on them.
+ */
 enum mm_event_type {
 	MM_MIN_FAULT = 0,
 	MM_MAJ_FAULT = 1,
