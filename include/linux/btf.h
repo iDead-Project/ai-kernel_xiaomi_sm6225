@@ -47,6 +47,10 @@ void btf_type_seq_show(const struct btf *btf, u32 type_id, void *obj,
 int btf_get_fd_by_id(u32 id);
 u32 btf_id(const struct btf *btf);
 bool btf_name_offset_valid(const struct btf *btf, u32 offset);
+bool btf_member_is_reg_int(const struct btf *btf, const struct btf_type *s,
+			   const struct btf_member *m,
+			   u32 expected_offset, u32 expected_size);
+int btf_find_spin_lock(const struct btf *btf, const struct btf_type *t);
 
 #ifdef CONFIG_BPF_SYSCALL
 const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id);
