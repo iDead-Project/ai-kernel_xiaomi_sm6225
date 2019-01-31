@@ -3101,7 +3101,14 @@ static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn
 			return -EINVAL;
 		}
 		regs[BPF_REG_0].map_ptr = meta.map_ptr;
-		regs[BPF_REG_0].id = ++env->id_gen;
+		if (fn->ret_type == RET_PTR_TO_MAP_VALUE) {
+			regs[BPF_REG_0].type = PTR_TO_MAP_VALUE;
+			if (map_value_has_spin_lock(meta.map_ptr))
+				regs[BPF_REG_0].id = ++env->id_gen;
+		} else {
+			regs[BPF_REG_0].type = PTR_TO_MAP_VALUE_OR_NULL;
+			regs[BPF_REG_0].id = ++env->id_gen;
+		}
 	} else if (fn->ret_type == RET_PTR_TO_SOCKET_OR_NULL) {
 		int id = acquire_reference_state(env, insn_idx);
 		if (id < 0)
