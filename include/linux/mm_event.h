@@ -4,6 +4,7 @@
 
 enum mm_event_type {
 	MM_MIN_FAULT = 0,
+<<<<<<< HEAD
 	MM_MAJ_FAULT = 1,
 	MM_READ_IO = 2,
 	MM_COMPACTION = 3,
@@ -16,6 +17,12 @@ enum mm_event_type {
 	UFS_READ_COMPL_CMD = 10,
 	F2FS_READ_DATA = 11,
 	MM_TYPE_NUM = 12,
+=======
+	MM_MAJ_FAULT,
+	MM_COMPACTION,
+	MM_RECLAIM,
+	MM_TYPE_NUM,
+>>>>>>> 0a0796972fe6 (mm: introduce per-process mm event tracking feature)
 };
 
 struct mm_event_task {
@@ -24,4 +31,16 @@ struct mm_event_task {
 	u64 accm_lat;
 } __attribute__ ((packed));
 
+<<<<<<< HEAD
+=======
+#ifdef CONFIG_MM_EVENT_STAT
+void mm_event_task_init(struct task_struct *tsk);
+void mm_event_start(ktime_t *time);
+void mm_event_end(enum mm_event_type event, ktime_t start);
+#else
+static inline void mm_event_task_init(struct task_struct *tsk) {}
+static inline void mm_event_start(ktime_t *time) {}
+static inline void mm_event_end(enum mm_event_type event, ktime_t start) {}
+#endif /* _LINUX_MM_EVENT_H */
+>>>>>>> 0a0796972fe6 (mm: introduce per-process mm event tracking feature)
 #endif
