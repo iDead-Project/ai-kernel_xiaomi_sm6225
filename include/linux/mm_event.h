@@ -21,6 +21,7 @@ enum mm_event_type {
 	MM_MAJ_FAULT,
 	MM_COMPACTION,
 	MM_RECLAIM,
+	MM_SWP_FAULT,
 	MM_TYPE_NUM,
 >>>>>>> 0a0796972fe6 (mm: introduce per-process mm event tracking feature)
 };
