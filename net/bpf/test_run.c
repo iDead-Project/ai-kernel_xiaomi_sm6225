@@ -10,6 +10,9 @@
 #include <linux/etherdevice.h>
 #include <linux/filter.h>
 #include <linux/sched/signal.h>
+#include <net/bpf_sk_storage.h>
+#include <net/sock.h>
+#include <net/tcp.h>
 
 static __always_inline u32 bpf_test_run_one(struct bpf_prog *prog, void *ctx,
 		struct bpf_cgroup_storage *storage[MAX_BPF_CGROUP_STORAGE_TYPE])
@@ -172,6 +175,9 @@ int bpf_prog_test_run_skb(struct bpf_prog *prog, const union bpf_attr *kattr,
 		size = skb_headlen(skb);
 	ret = bpf_test_finish(kattr, uattr, skb->data, size, retval, duration);
 	kfree_skb(skb);
+	bpf_sk_storage_free(sk);
+	kfree(sk);
+	kfree(ctx);
 	return ret;
 }
 
