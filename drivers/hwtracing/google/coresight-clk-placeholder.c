@@ -33,7 +33,7 @@ static struct platform_driver coresight_clk_disable_driver = {
 	.driver         = {
 		.name   = "coresight-clk-disable",
 		.of_match_table	= coresight_clk_disable_match,
-		},
+	},
 };
 
 module_platform_driver(coresight_clk_disable_driver);
