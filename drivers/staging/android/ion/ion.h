@@ -22,6 +22,7 @@
 #include <linux/types.h>
 #include <linux/miscdevice.h>
 #include <linux/bitops.h>
+#include <linux/msm_dma_iommu_mapping.h>
 #include <linux/vmstat.h>
 #include <linux/uapi/ion.h>
 #include <linux/uapi/msm_ion.h>

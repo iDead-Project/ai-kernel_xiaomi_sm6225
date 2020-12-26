@@ -152,12 +152,12 @@ void msm_dma_buf_freed(struct msm_iommu_data *data)
 		list_for_each_entry_safe(map, tmp, &data->map_list, data_node) {
 			struct device *dev = map->dev;
 
-			if (!mutex_trylock(&dev->iommu_map_lock)) {
+		if (!mutex_trylock(&dev->iommu_map_lock)) {
 				retry = 1;
 				break;
 			}
 
-			msm_iommu_map_free(map);
+		msm_iommu_map_free(map);
 			mutex_unlock(&dev->iommu_map_lock);
 		}
 		mutex_unlock(&data->lock);
