@@ -92,6 +92,10 @@ config SMB1351_USB_CHARGER
          notification support. The driver controls SMB1351 via I2C and
          supports device-tree interface.
 
+config SMB1351_FAST_CHG_AMP
+	tristate "smb1351 fast charging enabled"
+    depends on SMB1351_USB_CHARGER
+
 config SMB1360_CHARGER_FG
 	tristate "SMB1360 Charger and Fuel Gauge"
 	depends on I2C
