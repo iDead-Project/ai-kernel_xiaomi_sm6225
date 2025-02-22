@@ -7,18 +7,15 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
+#include <linux/ptrace.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 #include <linux/sched/task_stack.h>
 #else
 #include <linux/sched.h>
 #endif
 
-/* current_user_stack_pointer */
-#include <linux/ptrace.h>
-
 #include "objsec.h"
 #include "allowlist.h"
-#include "arch.h"
 #include "klog.h" // IWYU pragma: keep
 #include "ksud.h"
 #include "kernel_compat.h"
@@ -28,9 +25,7 @@
 
 extern void ksu_escape_to_root();
 
-bool ksu_faccessat_hook __read_mostly = true;
-bool ksu_stat_hook __read_mostly = true;
-bool ksu_devpts_hook __read_mostly = true;
+static bool ksu_sucompat_non_kp __read_mostly = true;
 
 static void __user *userspace_stack_buffer(const void *d, size_t len)
 {
@@ -60,7 +55,7 @@ int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
 {
 	const char su[] = SU_PATH;
 
-	if (!ksu_faccessat_hook) {
+	if (!ksu_sucompat_non_kp) {
 		return 0;
 	}
 	
@@ -85,7 +80,7 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
 	// const char sh[] = SH_PATH;
 	const char su[] = SU_PATH;
 
-	if (!ksu_stat_hook) {
+	if (!ksu_sucompat_non_kp) {
 		return 0;
 	}
 	
@@ -99,27 +94,12 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
 
 	char path[sizeof(su) + 1];
 	memset(path, 0, sizeof(path));
-// Remove this later!! we use syscall hook, so this will never happen!!!!!
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0) && 0
-	// it becomes a `struct filename *` after 5.18
-	// https://elixir.bootlin.com/linux/v5.18/source/fs/stat.c#L216
-	const char sh[] = SH_PATH;
-	struct filename *filename = *((struct filename **)filename_user);
-	if (IS_ERR(filename)) {
-		return 0;
-	}
-	if (likely(memcmp(filename->name, su, sizeof(su))))
-		return 0;
-	pr_info("vfs_statx su->sh!\n");
-	memcpy((void *)filename->name, sh, sizeof(sh));
-#else
 	ksu_strncpy_from_user_nofault(path, *filename_user, sizeof(path));
 
 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
 		pr_info("newfstatat su->sh!\n");
 		*filename_user = sh_user_path();
 	}
-#endif
 
 	return 0;
 }
@@ -133,6 +113,10 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
 	const char sh[] = KSUD_PATH;
 	const char su[] = SU_PATH;
 
+	if (!ksu_sucompat_non_kp){
+		return 0;
+	}
+	
 	if (unlikely(!filename_ptr))
 		return 0;
 
@@ -162,6 +146,10 @@ int ksu_handle_execve_sucompat(int *fd, const char __user **filename_user,
 	const char su[] = SU_PATH;
 	char path[sizeof(su) + 1];
 
+	if (!ksu_sucompat_non_kp){
+		return 0;
+	}
+	
 	if (unlikely(!filename_user))
 		return 0;
 
@@ -184,7 +172,7 @@ int ksu_handle_execve_sucompat(int *fd, const char __user **filename_user,
 
 int ksu_handle_devpts(struct inode *inode)
 {
-	if (!ksu_devpts_hook) {
+	if (!ksu_sucompat_non_kp) {
 		return 0;
 	}
 	
@@ -219,21 +207,12 @@ int ksu_handle_devpts(struct inode *inode)
 // sucompat: permited process can execute 'su' to gain root access.
 void ksu_sucompat_init()
 {
-	ksu_faccessat_hook = true;
-	pr_info("start faccessat hook\n");
-	ksu_stat_hook = true;
-	pr_info("start stat hook\n");
-	ksu_devpts_hook = true;
-	pr_info("start devpts hook\n");
-	pr_info("ksu_sucompat_init!\n");
+	ksu_sucompat_non_kp = true;
+	pr_info("ksu_sucompat_init: hooks enabled: execve/execveat_su, faccessat, stat, devpts\n");
 }
 
 void ksu_sucompat_exit()
 {
-	ksu_faccessat_hook = false;
-	pr_info("stop faccessat hook\n");
-	ksu_stat_hook = false;
-	pr_info("stop stat hook\n");
-	ksu_devpts_hook = false;
+	ksu_sucompat_non_kp = false;
 	pr_info("ksu_sucompat_exit: hooks disabled: execve/execveat_su, faccessat, stat, devpts\n");
 }
