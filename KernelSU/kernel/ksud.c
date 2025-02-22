@@ -18,15 +18,13 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
-/* fatal_signal_pending */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
-#include <linux/sched/signal.h>
+#include <linux/sched/signal.h> /* fatal_signal_pending */
 #else
-#include <linux/sched.h>
+#include <linux/sched.h> /* fatal_signal_pending */
 #endif
 
 #include "allowlist.h"
-#include "arch.h"
 #include "klog.h" // IWYU pragma: keep
 #include "ksud.h"
 #include "kernel_compat.h"
@@ -509,11 +507,7 @@ static void stop_execve_hook()
 
 static void stop_input_hook()
 {
-	static bool input_hook_stopped = false;
-	if (input_hook_stopped) {
-		return;
-	}
-	input_hook_stopped = true;
+	if (!ksu_input_hook) { return; }
 	ksu_input_hook = false;
 	pr_info("stop input_hook\n");
 }
