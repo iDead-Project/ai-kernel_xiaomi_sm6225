@@ -21,7 +21,6 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 #include "dsi_parser.h"
-#include "mi_dsi_display.h"
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -35,10 +34,10 @@
 #define DSI_CLOCK_BITRATE_RADIX 10
 #define MAX_TE_SOURCE_ID  2
 
-// #ifdef CONFIG_TARGET_PROJECT_K7T
+#ifdef CONFIG_TARGET_PROJECT_K7T
 extern void dsi_set_backlight_control(struct dsi_panel *panel,
 			 struct dsi_display_mode *adj_mode);
-// #endif
+#endif
 
 static char dsi_display_primary[MAX_CMDLINE_PARAM_LEN];
 static char dsi_display_secondary[MAX_CMDLINE_PARAM_LEN];
@@ -5471,82 +5470,6 @@ done:
 	return rc;
 }
 #endif
-
-int dsi_display_get_fps(struct dsi_display *display, u32 *fps)
-{
-	struct dsi_display_mode *cur_mode = NULL;
-	int ret = 0;
-
-	if (!display || !display->panel) {
-		DSI_ERR("Invalid display/panel ptr\n");
-		return -EINVAL;
-	}
-
-	mutex_lock(&display->display_lock);
-	cur_mode = display->panel->cur_mode;
-	if (cur_mode) {
-		*fps =  cur_mode->timing.refresh_rate;
-	} else {
-		ret = -EINVAL;
-	}
-	mutex_unlock(&display->display_lock);
-
-	return ret;
-}
-
-static ssize_t dynamic_fps_show(struct device *dev, struct device_attribute *attr,
-				 char *buf)
-{
-	struct dsi_display *display;
-	u32 fps = 0;
-	int rc = 0;
-
-	struct platform_device *pdev = to_platform_device(dev);
-	display = platform_get_drvdata(pdev);
-
-	if (!display) {
-		DSI_ERR("Invalid display\n");
-		return -EINVAL;
-	}
-
-	rc = dsi_display_get_fps(display, &fps);
-	if (rc) {
-		DSI_ERR("%s: failed to get fps. rc=%d\n", __func__, rc);
-		return snprintf(buf, PAGE_SIZE, "%s\n", "null");
-	}
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", fps);
-}
-static DEVICE_ATTR_RO(dynamic_fps);
-
-static struct attribute *mi_display_attrs[] = {
-	&dev_attr_dynamic_fps.attr,
-	NULL,
-};
-ATTRIBUTE_GROUPS(mi_display);
-
-void dsi_mi_display_init(struct dsi_display *display) {
-	int disp_id = mi_get_disp_id(display);
-
-	if (IS_ERR_OR_NULL(display->class)) {
-		display->class = class_create(THIS_MODULE, "mi_display");
-		if (IS_ERR(display->class))
-			DSI_ERR("class_create failed, rc: %d\n", PTR_ERR(display->class));
-	}
-
-	if (IS_ERR_OR_NULL(display->dev)) {
-		display->dev = device_create_with_groups(display->class, &display->pdev->dev,
-				0, display, mi_display_groups, "disp-DSI-%d", disp_id);
-		if (IS_ERR(display->dev))
-			DSI_ERR("device_create_with_groups failed for disp-DSI-%d, ret: %d\n", disp_id, PTR_ERR(display->dev));
-	}
-}
-
-void dsi_mi_display_deinit(struct dsi_display *display) {
-	device_unregister(display->dev);
-	class_destroy(display->class);
-}
-
 /**
  * dsi_display_bind - bind dsi device with controlling device
  * @dev:        Pointer to base of platform device
@@ -5759,8 +5682,6 @@ static int dsi_display_bind(struct device *dev,
 	/* register te irq handler */
 	dsi_display_register_te_irq(display);
 
-	dsi_mi_display_init(display);
-
 	goto error;
 
 error_host_deinit:
@@ -5836,8 +5757,6 @@ static void dsi_display_unbind(struct device *dev,
 
 	atomic_set(&display->clkrate_change_pending, 0);
 	(void)dsi_display_debugfs_deinit(display);
-
-	dsi_mi_display_deinit(display);
 
 	mutex_unlock(&display->display_lock);
 }
@@ -7341,21 +7260,11 @@ int dsi_display_set_mode(struct dsi_display *display,
 	}
 #endif
 
-#ifdef CONFIG_TARGET_PROJECT_C3Q
-	if (display->panel->panel_initialized && (adj_mode.timing.refresh_rate > 60)) {
-		dsi_set_backlight_control(display->panel, &adj_mode);
-	}
-#endif
-
 	DSI_INFO("mdp_transfer_time_us=%d us\n",
 			adj_mode.priv_info->mdp_transfer_time_us);
 	DSI_INFO("hactive= %d,vactive= %d,fps=%d\n",
 			timing.h_active, timing.v_active,
 			timing.refresh_rate);
-
-	if (display->panel->cur_mode->timing.refresh_rate != timing.refresh_rate) {
-		sysfs_notify(&display->dev->kobj, NULL, "dynamic_fps");
-	}
 
 	memcpy(display->panel->cur_mode, &adj_mode, sizeof(adj_mode));
 error:
