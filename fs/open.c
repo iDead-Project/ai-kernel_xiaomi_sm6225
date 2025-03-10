@@ -33,6 +33,10 @@
 #include <linux/compat.h>
 #include "internal.h"
 
+#ifdef CONFIG_KSU
+#include <linux/ksu.h>
+#endif
+
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		unsigned int time_attrs, struct file *filp)
 {
@@ -457,7 +461,8 @@ extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int
 SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 {
 #ifdef CONFIG_KSU
-	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+	if (get_ksu_state() > 0)
+		ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
 #endif
 	return do_faccessat(dfd, filename, mode);
 }
