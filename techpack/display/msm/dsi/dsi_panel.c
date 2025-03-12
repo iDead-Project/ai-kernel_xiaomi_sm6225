@@ -21,6 +21,10 @@
 #include "exposure_adjustment.h"
 #endif
 
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
+#endif
+
 /**
  * topology is currently defined by a set of following 3 values:
  * 1. num of layer mixers
@@ -521,6 +525,9 @@ static int dsi_panel_lcd_bias_on(struct dsi_panel *panel)
 static int dsi_panel_power_on(struct dsi_panel *panel)
 {
 	int rc = 0;
+#ifdef CONFIG_POWERSUSPEND
+   	set_power_suspend_state_panel_hook(POWER_SUSPEND_INACTIVE);
+#endif
 #ifdef CONFIG_TARGET_PROJECT_C3Q
 	udelay(1000);
 		rc = dsi_panel_lcd_bias_on(panel);
@@ -601,7 +608,9 @@ int dsi_panel_lcd_bias_off(struct dsi_panel *panel)
 static int dsi_panel_power_off(struct dsi_panel *panel)
 {
 	int rc = 0;
-
+#ifdef CONFIG_POWERSUSPEND
+   	set_power_suspend_state_panel_hook(POWER_SUSPEND_ACTIVE);
+#endif
 #ifdef CONFIG_TARGET_PROJECT_K7T
 	usleep_range(11000, 11010);
 #endif
