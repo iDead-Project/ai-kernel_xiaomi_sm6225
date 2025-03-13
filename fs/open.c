@@ -34,7 +34,7 @@
 #include "internal.h"
 
 #ifdef CONFIG_KSU
-#include <linux/ksu,h>
+#include <linux/ksu.h>
 #endif
 
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
