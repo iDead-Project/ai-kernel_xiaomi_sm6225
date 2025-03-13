@@ -229,8 +229,9 @@ static struct binder_transaction_log_entry *binder_transaction_log_add(
 }
 
 enum binder_deferred_state {
-	BINDER_DEFERRED_FLUSH        = 0x01,
-	BINDER_DEFERRED_RELEASE      = 0x02,
+	BINDER_DEFERRED_PUT_FILES    = 0x01,
+	BINDER_DEFERRED_FLUSH        = 0x02,
+	BINDER_DEFERRED_RELEASE      = 0x04,
 };
 
 enum {
