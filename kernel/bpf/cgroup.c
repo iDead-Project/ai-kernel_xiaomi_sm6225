@@ -1026,7 +1026,7 @@ cg_sockopt_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_tcp_sock_proto;
 #endif
 	default:
-		return cgroup_base_func_proto(func_id, prog);
+		return cgroup_dev_func_proto(func_id, prog);
 	}
 }
 

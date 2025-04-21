@@ -3063,23 +3063,6 @@ static int check_reference_leak(struct bpf_verifier_env *env)
 	return state->acquired_refs ? -EINVAL : 0;
 }
 
-static void do_refine_retval_range(struct bpf_reg_state *regs, int ret_type,
-				   int func_id,
-				   struct bpf_call_arg_meta *meta)
-{
-	struct bpf_reg_state *ret_reg = &regs[BPF_REG_0];
-	if (ret_type != RET_INTEGER ||
-	    (func_id != BPF_FUNC_get_stack &&
-	     func_id != BPF_FUNC_probe_read_str))
-		return;
-
-	ret_reg->smax_value = meta->msize_smax_value;
-	ret_reg->umax_value = meta->msize_umax_value;
-	__reg_deduce_bounds(ret_reg);
-	__reg_bound_offset(ret_reg);
-}
-
-
 static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn_idx)
 {
 	const struct bpf_func_proto *fn = NULL;
@@ -5822,6 +5805,7 @@ static bool func_states_equal(struct bpf_verifier_env *env, struct bpf_func_stat
 			      struct bpf_func_state *cur)
 {
 	int i;
+	bool ret;
 
 	memset(env->idmap_scratch, 0, sizeof(env->idmap_scratch));
 	for (i = 0; i < MAX_BPF_REG; i++)
@@ -5833,11 +5817,11 @@ static bool func_states_equal(struct bpf_verifier_env *env, struct bpf_func_stat
 		return false;
 
 	for (i = 0; i < MAX_BPF_REG; i++) {
-		if (!regsafe(&old->regs[i], &cur->regs[i], idmap))
+		if (!regsafe(env, &old->regs[i], &cur->regs[i], env->idmap_scratch))
 			goto out_free;
 	}
 
-	if (!stacksafe(old, cur, idmap))
+	if (!stacksafe(env, old, cur, env->idmap_scratch))
 		goto out_free;
 
 	if (!refsafe(old, cur))
@@ -5846,7 +5830,7 @@ static bool func_states_equal(struct bpf_verifier_env *env, struct bpf_func_stat
 	ret = true;
 
 out_free:
-	kfree(idmap);
+	kfree(env->idmap_scratch);
 	return ret;
 }
 

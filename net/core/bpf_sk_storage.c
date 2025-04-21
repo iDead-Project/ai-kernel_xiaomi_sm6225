@@ -670,23 +670,6 @@ static int notsupp_get_next_key(struct bpf_map *map, void *key,
 	return -ENOTSUPP;
 }
 
-static int bpf_sk_storage_map_check_btf(const struct bpf_map *map,
-					const struct btf *btf,
-					const struct btf_type *key_type,
-					const struct btf_type *value_type)
-{
-	u32 int_data;
-
-	if (BTF_INFO_KIND(key_type->info) != BTF_KIND_INT)
-		return -EINVAL;
-
-	int_data = *(u32 *)(key_type + 1);
-	if (BTF_INT_BITS(int_data) != 32 || BTF_INT_OFFSET(int_data))
-		return -EINVAL;
-
-	return 0;
-}
-
 static void *bpf_fd_sk_storage_lookup_elem(struct bpf_map *map, void *key)
 {
 	struct bpf_sk_storage_data *sdata;
@@ -790,7 +773,6 @@ const struct bpf_map_ops sk_storage_map_ops = {
 	.map_lookup_elem = bpf_fd_sk_storage_lookup_elem,
 	.map_update_elem = bpf_fd_sk_storage_update_elem,
 	.map_delete_elem = bpf_fd_sk_storage_delete_elem,
-	.map_check_btf = bpf_sk_storage_map_check_btf,
 };
 
 const struct bpf_func_proto bpf_sk_storage_get_proto = {
