@@ -3040,6 +3040,7 @@ int LZ4_decompress_safe(const char *source, char *dest, int compressedSize,
 				      noDict, (BYTE *)dest, NULL, 0);
 }
 
+#if IS_ENABLED(CONFIG_EROFS_FS)
 LZ4_FORCE_O2
 int LZ4_decompress_safe_partial(const char *src, char *dst, int compressedSize,
 				int targetOutputSize, int dstCapacity)
@@ -3049,6 +3050,7 @@ int LZ4_decompress_safe_partial(const char *src, char *dst, int compressedSize,
 				      partial_decode, noDict, (BYTE *)dst, NULL,
 				      0);
 }
+#endif
 
 LZ4_FORCE_O2
 int LZ4_decompress_fast(const char *source, char *dest, int originalSize)
