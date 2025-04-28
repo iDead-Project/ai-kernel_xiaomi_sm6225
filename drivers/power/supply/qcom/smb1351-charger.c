@@ -19,7 +19,8 @@
 #include <linux/mutex.h>
 #include <linux/delay.h>
 #include <linux/pinctrl/consumer.h>
-
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
 
 /* Mask/Bit helpers */
 #define _SMB1351_MASK(BITS, POS) \
@@ -374,7 +375,7 @@
 #define SMB1351_IRQ_REG_COUNT			8
 #define SMB1351_CHG_PRE_MIN_MA			100
 #define SMB1351_CHG_FAST_MIN_MA			1000
-#define SMB1351_CHG_FAST_MAX_MA			3500
+#define SMB1351_CHG_FAST_MAX_MA			3800
 #define SMB1351_CHG_PRE_SHIFT			5 
 #define SMB1351_CHG_FAST_SHIFT			5 //4
 #define DEFAULT_BATT_CAPACITY			50
@@ -825,13 +826,14 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 	int i, rc;
 	bool is_pre_chg = false;
 
-
+#ifndef CONFIG_SMB1351_SYSFS_TUNABLE
 	if ((fastchg_current < SMB1351_CHG_PRE_MIN_MA) ||
 		(fastchg_current > SMB1351_CHG_FAST_MAX_MA)) {
 		pr_err("bad pre_fastchg current mA=%d asked to set\n",
 					fastchg_current);
 		return -EINVAL;
 	}
+#endif
 
 	/*
 	 * fast chg current could not support less than 1000mA
@@ -844,6 +846,9 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 
 	if (is_pre_chg) {
 		/* set prechg current */
+#ifdef CONFIG_SMB1351_SYSFS_TUNABLE
+		chip->fastchg_current_max_ma = fastchg_current; // Directly assign sysfs value!!
+#else
 		for (i = ARRAY_SIZE(pre_chg_current) - 1; i >= 0; i--) {
 			if (pre_chg_current[i] <= fastchg_current)
 				break;
@@ -851,6 +856,7 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 		if (i < 0)
 			i = 0;
 		chip->fastchg_current_max_ma = pre_chg_current[i];
+#endif
 		pr_err("prechg setting %02x\n", i);
 
 		i = i << SMB1351_CHG_PRE_SHIFT;
@@ -872,14 +878,17 @@ static int smb1351_fastchg_current_set(struct smb1351_charger *chip,
 			fastchg_current = 2600;
 
 		/* set fastchg current */
-		for (i = ARRAY_SIZE(fast_chg_current) - 1; i >= 0; i--) {
-			if (fast_chg_current[i] <= fastchg_current)
+#ifdef CONFIG_SMB1351_SYSFS_TUNABLE
+		chip->fastchg_current_max_ma = fastchg_current; // Directly assign sysfs value!!
+#else
+		for (i = ARRAY_SIZE(pre_chg_current) - 1; i >= 0; i--) {
+			if (pre_chg_current[i] <= fastchg_current)
 				break;
 		}
 		if (i < 0)
 			i = 0;
-		chip->fastchg_current_max_ma = fast_chg_current[i];
-
+		chip->fastchg_current_max_ma = pre_chg_current[i];
+#endif
 		i = i << SMB1351_CHG_FAST_SHIFT;
 		pr_err("fastchg limit=%d setting %02x\n",
 					chip->fastchg_current_max_ma, i);
@@ -3124,6 +3133,53 @@ static int create_debugfs_entries(struct smb1351_charger *chip)
 	return 0;
 }
 
+#ifdef CONFIG_SMB1351_SYSFS_TUNABLE
+// Tunable charging current --
+struct smb1351_charger *sysfs_smb1351_charger_ptr;
+
+static ssize_t chg_fast_max_ma_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d", sysfs_smb1351_charger_ptr->fastchg_current_max_ma);
+}
+
+static ssize_t chg_fast_max_ma_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	short fchg_max_ma;
+
+	sscanf(buf, "%d", &fchg_max_ma);
+	
+	// Instead of checking with smb1351_fastchg_current_set, we made value checker inside sysfs tunable.
+	if (fchg_max_ma < 1000)
+		fchg_max_ma = 1000;
+	if (fchg_max_ma > 4640)
+		fchg_max_ma = 4640;
+	
+	sysfs_smb1351_charger_ptr->target_fastchg_current_max_ma = fchg_max_ma;
+	smb1351_fastchg_current_set(sysfs_smb1351_charger_ptr, sysfs_smb1351_charger_ptr->target_fastchg_current_max_ma);
+
+	return count;
+}
+
+static struct kobj_attribute chg_fast_max_ma_attribute =
+	__ATTR(chg_fast_max, 0664,
+		chg_fast_max_ma_show,
+		chg_fast_max_ma_store);
+
+static struct attribute *smb1351_charger_attrs[] = {
+		&chg_fast_max_ma_attribute.attr,
+		NULL,
+};
+
+static struct attribute_group smb1351_charger_attr_group = {
+		.attrs = smb1351_charger_attrs,
+};
+
+static struct kobject *smb1351_charger_kobj;
+// Tunable charging current ++
+#endif
+
 static int smb1351_main_charger_probe(struct i2c_client *client,
 				const struct i2c_device_id *id)
 {
@@ -3137,7 +3193,9 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
 		return -ENOMEM;
-
+#ifdef CONFIG_SMB1351_SYSFS_TUNABLE
+	sysfs_smb1351_charger_ptr = chip; // sysfs pointer
+#endif
 	chip->client = client;
 	chip->dev = &client->dev;
 	chip->fake_battery_soc = -EINVAL;
@@ -3289,6 +3347,18 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 	dump_regs(chip);
 
 	chip_host = chip;
+
+#ifdef CONFIG_SMB1351_SYSFS_TUNABLE
+	smb1351_charger_kobj = kobject_create_and_add("smb1351_charger", power_kobj);
+	if (smb1351_charger_kobj == NULL) {
+		pr_warn("%s kobject create failed!\n", __func__);
+        }
+
+	rc = sysfs_create_group(smb1351_charger_kobj, &smb1351_charger_attr_group);
+    if (rc) {
+		pr_warn("%s sysfs file create failed!\n", __func__);
+	}
+#endif
 
 	pr_info("smb1351 successfully probed. charger=%d, batt=%d version=%s\n",
 			chip->chg_present,

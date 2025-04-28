@@ -92,6 +92,13 @@ config SMB1351_USB_CHARGER
          notification support. The driver controls SMB1351 via I2C and
          supports device-tree interface.
 
+config SMB1351_SYSFS_TUNABLE
+		tristate "Add sysfs tunable support for smb1351"
+		depends on SMB1351_USB_CHARGER
+		help
+		 Say Y to enable sysfs support for SMB1351. Currentlly only control
+		 fast charging current. More tunable soon!!
+
 config SMB1360_CHARGER_FG
 	tristate "SMB1360 Charger and Fuel Gauge"
 	depends on I2C
