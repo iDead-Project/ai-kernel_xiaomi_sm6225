@@ -26,6 +26,11 @@
 #include <dt-bindings/sound/audio-codec-port-types.h>
 #include <asoc/msm-cdc-supply.h>
 
+#include <../../../drivers/base/regmap/internal.h>
+#include <linux/extcon.h>
+#include <linux/extcon-provider.h>
+#include <../../../drivers/extcon/extcon.h>
+
 #define DRV_NAME "wcd937x_codec"
 
 #define WCD9370_VARIANT 0
@@ -39,6 +44,10 @@
 #define EAR_RX_PATH_AUX 1
 
 #define NUM_ATTEMPTS 5
+
+struct extcon_dev *g_audiowizard_force_preset_edev = NULL;
+int current_wcd_component_id;
+EXPORT_SYMBOL(current_wcd_component_id);
 
 enum {
 	CODEC_TX = 0,
