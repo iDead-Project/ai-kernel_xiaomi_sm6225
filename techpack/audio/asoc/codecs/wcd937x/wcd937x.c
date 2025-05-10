@@ -71,7 +71,7 @@ MODULE_PARM_DESC(high_perf_mode, "Force hph-mode to CLS_AB for better audio.");
 module_param(advanced_hifi, int, 0664);
 MODULE_PARM_DESC(advanced_hifi, "Same as high_perf_mode, but set mode to CLS_AB_HIFI. Enable high_perf_mode first!!");
 
-int g_DebugMode = 1;
+int g_DebugMode = 0;
 struct switch_dev *g_audiowizard_force_preset_sdev = NULL;
 
 static const struct regmap_irq wcd937x_irqs[WCD937X_NUM_IRQS] = {
