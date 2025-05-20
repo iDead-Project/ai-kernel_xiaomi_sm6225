@@ -4,10 +4,8 @@
 #include <linux/module.h>
 #include <linux/version.h> /* LINUX_VERSION_CODE, KERNEL_VERSION macros */
 #include <linux/workqueue.h>
-#include <linux/init.h>
 
 #include "allowlist.h"
-#include "arch.h"
 #include "core_hook.h"
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
@@ -16,22 +14,6 @@
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs.h>
 #endif
-
-unsigned int enable_ksu = 1;
-
-static int __init read_kernelsu_state(char *s)
-{
-	if (s)
-		enable_ksu = simple_strtoul(s, NULL, 0);
-
-	return 1;
-}
-__setup("ksu.enabled=", read_kernelsu_state);
-
-unsigned int get_ksu_state(void)
-{
-	return enable_ksu;
-}
 
 static struct workqueue_struct *ksu_workqueue;
 
@@ -56,11 +38,6 @@ int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
 
 int __init ksu_kernelsu_init(void)
 {
-	if (enable_ksu < 1) {
-		pr_info_once(" is disabled");
-		return 0;
-	}
-
 #ifdef CONFIG_KSU_DEBUG
 	pr_alert("*************************************************************");
 	pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
@@ -88,9 +65,6 @@ int __init ksu_kernelsu_init(void)
 
 void ksu_kernelsu_exit(void)
 {
-	if (enable_ksu < 1)
-		return;
-
 	ksu_allowlist_exit();
 
 	ksu_throne_tracker_exit();
