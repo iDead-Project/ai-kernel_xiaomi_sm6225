@@ -7,7 +7,6 @@
 #include <linux/init.h>
 
 #include "allowlist.h"
-#include "arch.h"
 #include "core_hook.h"
 #include "klog.h" // IWYU pragma: keep
 #include "ksu.h"
@@ -60,7 +59,6 @@ int __init ksu_kernelsu_init(void)
 		pr_info_once(" is disabled");
 		return 0;
 	}
-
 #ifdef CONFIG_KSU_DEBUG
 	pr_alert("*************************************************************");
 	pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
@@ -90,7 +88,7 @@ void ksu_kernelsu_exit(void)
 {
 	if (enable_ksu < 1)
 		return;
-
+	
 	ksu_allowlist_exit();
 
 	ksu_throne_tracker_exit();
