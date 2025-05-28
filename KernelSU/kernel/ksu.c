@@ -39,6 +39,7 @@ bool ksu_queue_work(struct work_struct *work)
 	return queue_work(ksu_workqueue, work);
 }
 
+#ifdef KSU_USE_STRUCT_FILENAME
 extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
 					void *argv, void *envp, int *flags);
 
@@ -52,6 +53,7 @@ int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
 	return ksu_handle_execveat_sucompat(fd, filename_ptr, argv, envp,
 					    flags);
 }
+#endif // KSU_USE_STRUCT_FILENAME
 
 int __init ksu_kernelsu_init(void)
 {
