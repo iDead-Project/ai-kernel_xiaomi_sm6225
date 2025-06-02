@@ -46,6 +46,10 @@
 #include <linux/jiffies.h>
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
+#ifdef CONFIG_TP_COMMONMore actions
+#include <linux/input/tp_common.h>
+#endif
+
 #ifdef CHECK_TOUCH_VENDOR
 extern char *saved_command_line;
 
@@ -190,6 +194,36 @@ int nvt_gesture_switch(struct input_dev *dev, unsigned int type, unsigned int co
 
 static int32_t nvt_ts_resume(struct device *dev);
 static int32_t nvt_ts_suspend(struct device *dev);
+
+#ifdef CONFIG_TP_COMMON
+static ssize_t double_tap_show(struct kobject *kobj,
+			       struct kobj_attribute *attr, char *buf)
+{
+	struct fts_ts_data *ts_data = fts_data;
+
+	return sprintf(buf, "%d\n", ts_data->gesture_mode);
+}
+
+static ssize_t double_tap_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct fts_ts_data *ts_data = fts_data;
+	int rc, val;
+
+	rc = kstrtoint(buf, 10, &val);
+	if (rc)
+		return -EINVAL;
+
+	ts_data->gesture_mode = !!val;
+	return count;
+}
+
+static struct tp_common_ops double_tap_ops = {
+	.show = double_tap_show,
+	.store = double_tap_store
+};
+#endif
 
 typedef int(*touchpanel_recovery_cb_p_t)(void);
 extern int set_touchpanel_recovery_callback(touchpanel_recovery_cb_p_t cb);
@@ -2234,6 +2268,14 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->input_dev->event =nvt_gesture_switch;
 	for (retry = 0; retry < (sizeof(gesture_key_array) / sizeof(gesture_key_array[0])); retry++)
 		input_set_capability(ts->input_dev, EV_KEY, gesture_key_array[retry]);
+#endif
+
+#ifdef CONFIG_TP_COMMONMore actions
+	ret = tp_common_set_double_tap_ops(&double_tap_ops);
+	if (ret < 0) {
+		NVT_ERR("%s: Failed to create double_tap node err=%d\n",
+                	__func__, ret);
+    }
 #endif
 
 	sprintf(ts->phys, "input/ts");
