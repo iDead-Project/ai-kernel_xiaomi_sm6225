@@ -498,6 +498,14 @@ static int pm8xxx_rtc_freeze(struct device *dev)
 
 	devm_free_irq(rtc_dd->rtc_dev, rtc_dd->rtc_alarm_irq, rtc_dd);
 
+	/*
+	 * Added wake up capability logic for RTC alarm based on DTS entry.
+	 */
+	if (of_property_read_bool(pdev->dev.of_node, "qcom,disable-alarm-wakeup")) {
+		device_set_wakeup_capable(&pdev->dev, false);
+	}
+
+	dev_dbg(&pdev->dev, "Probe success RTC !!\n");
 	return 0;
 }
 
