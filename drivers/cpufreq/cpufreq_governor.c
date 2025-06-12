@@ -181,8 +181,8 @@ unsigned int dbs_update(struct cpufreq_policy *policy)
 			 * calls, so the previous load value can be used then.
 			 */
 			load = j_cdbs->prev_load;
-		} else if (unlikely((int)idle_time > 2 * sampling_rate &&
-				    j_cdbs->copy_prev_load)) {
+		} else if (unlikely(idle_time > 2 * sampling_rate &&
+				    j_cdbs->prev_load)) {
 			/*
 			 * If the CPU had gone completely idle and a task has
 			 * just woken up on this CPU now, it would be unfair to
