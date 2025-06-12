@@ -279,17 +279,6 @@ static int __ksu_handle_execveat_ksud(int *fd, char *filename,
  *
  * This wrapper may be removed in future rebases.
  *
- * Quoting a weird take for posterity:
- *
- *   "The first member of the struct filename is name, so the pointer to the struct
- *    points to name. This creates an implicit dependency. Although it may remain
- *    the same indefinitely, any change will cause a panic. The benefits apply only
- *    to pre-3.7 kernels, making it not worth the effort."
- * 	- https://github.com/tiann/KernelSU/pull/2595#issuecomment-2888960286
- *
- * Okay. He actually thinks that that's a *good* thing?
- * Incredible. Weaponized optimism in C.
- *
  */
 __maybe_unused int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
 			     struct user_arg_ptr *argv, struct user_arg_ptr *envp,
@@ -498,20 +487,15 @@ bool ksu_is_safe_mode()
 	return false;
 }
 
-/* 
- * ksu_handle_execve_ksud, ksu_handle_compat_execve_ksud, execve_ksud handler for non kprobe
- * adapted from sys_execve_handler_pre 
- * https://github.com/tiann/KernelSU/commit/2027ac3
- */
-__maybe_unused static int __ksu_handle_execve_ksud(const char __user *filename_user,
+// execve_ksud handlers for non kprobe
+static int ksu_common_execve_ksud(const char __user *filename_user,
 			struct user_arg_ptr *argv)
 {
 	char path[32];
 
 	// return early if disabled.
-	if (!ksu_execveat_hook) {
+	if (!ksu_execveat_hook)
 		return 0;
-	}
 
 	if (!filename_user)
 		return 0;
@@ -525,20 +509,42 @@ __maybe_unused static int __ksu_handle_execve_ksud(const char __user *filename_u
 	return __ksu_handle_execveat_ksud(AT_FDCWD, path, argv, NULL, NULL);
 }
 
-// I don't think this is doable with a single entry point
-__maybe_unused int ksu_handle_execve_ksud(const char __user *filename_user,
+int ksu_handle_execve_ksud(const char __user *filename_user,
 			const char __user *const __user *__argv)
 {
 	struct user_arg_ptr argv = { .ptr.native = __argv };
-	return __ksu_handle_execve_ksud(filename_user, &argv);
+	return ksu_common_execve_ksud(filename_user, &argv);
 }
 
-#if defined(CONFIG_64BIT) && defined(CONFIG_COMPAT)
-__maybe_unused int ksu_handle_compat_execve_ksud(const char __user *filename_user,
+#if defined(CONFIG_COMPAT)
+int ksu_handle_compat_execve_ksud(const char __user *filename_user,
 			const compat_uptr_t __user *__argv)
 {
 	struct user_arg_ptr argv = { .ptr.compat = __argv };
-	return __ksu_handle_execve_ksud(filename_user, &argv);
+	return ksu_common_execve_ksud(filename_user, &argv);
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+#include "objsec.h" // task_security_struct
+bool is_ksu_transition(const struct task_security_struct *old_tsec,
+			const struct task_security_struct *new_tsec)
+{
+	static u32 ksu_sid;
+	char *secdata;
+	u32 seclen;
+	bool allowed = false;
+
+	if (!ksu_sid)
+		security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &ksu_sid);
+
+	if (security_secid_to_secctx(old_tsec->sid, &secdata, &seclen))
+		return false;
+
+	allowed = (!strcmp("u:r:init:s0", secdata) && new_tsec->sid == ksu_sid);
+	security_release_secctx(secdata, seclen);
+	
+	return allowed;
 }
 #endif
 

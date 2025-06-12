@@ -1,6 +1,7 @@
 #include <linux/version.h>
 #include <linux/fs.h>
 #include <linux/nsproxy.h>
+#include <linux/cred.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
 #include <linux/sched/task.h>
 #else
@@ -76,20 +77,15 @@ void ksu_android_ns_fs_check()
 	task_unlock(current);
 }
 
-int ksu_access_ok(const void *addr, unsigned long size) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0)
-    /* For kernels before 5.0.0, pass the type argument to access_ok. */
-    return access_ok(VERIFY_READ, addr, size);
-#else
-    /* For kernels 5.0.0 and later, ignore the type argument. */
-    return access_ok(addr, size);
-#endif
-}
-
 struct file *ksu_filp_open_compat(const char *filename, int flags, umode_t mode)
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-	if (init_session_keyring != NULL && !current_cred()->session_keyring &&
+	if (init_session_keyring != NULL && 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
+	!current_cred()->session_keyring &&
+#else
+	!current_cred()->tgcred->session_keyring &&
+#endif
 	    (current->flags & PF_WQ_WORKER)) {
 		pr_info("installing init session keyring for older kernel\n");
 		install_session_keyring(init_session_keyring);
@@ -182,3 +178,24 @@ long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 	return ret;
 }
 #endif
+
+const struct cred *ksu_get_cred_rcu(const struct cred *cred)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0) || defined(KSU_HAS_GET_CRED_RCU)
+	return get_cred_rcu(cred);
+#else
+	smp_mb(); // sledgehammer!
+	const struct cred *ret = get_cred(cred);
+	smp_mb(); // again!
+	return ret;
+#endif
+}
+
+int ksu_access_ok(const void *addr, unsigned long size)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0)
+	return access_ok(VERIFY_READ, addr, size);
+#else
+	return access_ok(addr, size);
+#endif
+}

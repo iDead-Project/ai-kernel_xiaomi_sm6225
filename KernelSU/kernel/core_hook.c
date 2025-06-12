@@ -20,7 +20,7 @@
 #include <linux/mount.h>
 #include <linux/fs.h>
 #include <linux/namei.h>
-#ifndef KSU_HAS_PATH_UMOUNT
+#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)) && !defined(KSU_HAS_PATH_UMOUNT) 
 #include <linux/syscalls.h> // sys_umount
 #endif
 
@@ -171,18 +171,24 @@ void ksu_escape_to_root(void)
 {
 	struct cred *cred;
 
+	if (current_euid().val == 0) {
+		pr_warn("Already root, don't escape!\n");
+		return;
+	}
+
 	rcu_read_lock();
 
 	do {
 		cred = (struct cred *)__task_cred((current));
-		BUG_ON(!cred);
-	} while (!get_cred_rcu(cred));
+		if (!cred) {
+			pr_info("%s: cred is null! bailing out! \n", __func__);
+			rcu_read_unlock();
+			return;
+		}
+	} while (!ksu_get_cred_rcu(cred));
 
-	if (cred->euid.val == 0) {
-		pr_warn("Already root, don't escape!\n");
-		rcu_read_unlock();
-		return;
-	}
+	rcu_read_unlock();
+
 	struct root_profile *profile = ksu_get_root_profile(cred->uid.val);
 
 	cred->uid.val = profile->uid;
@@ -213,7 +219,7 @@ void ksu_escape_to_root(void)
 
 	setup_groups(profile, cred);
 
-	rcu_read_unlock();
+	put_cred(cred); // release here - include/linux/cred.h
 
 	// Refer to kernel/seccomp.c: seccomp_set_mode_strict
 	// When disabling Seccomp, ensure that current->sighand->siglock is held during the operation.
@@ -709,7 +715,7 @@ static bool is_appuid(kuid_t uid)
 	return appid >= FIRST_APPLICATION_UID && appid <= LAST_APPLICATION_UID;
 }
 
-#ifdef KSU_HAS_PATH_UMOUNT
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0) || defined(KSU_HAS_PATH_UMOUNT)
 static void ksu_path_umount(const char *mnt, struct path *path, int flags)
 {
 	int err = path_umount(path, flags);
@@ -722,10 +728,10 @@ static void ksu_sys_umount(const char *mnt, int flags)
 
 	mm_segment_t old_fs = get_fs();
 	set_fs(KERNEL_DS);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-	long ret = sys_umount(usermnt, flags); // cuz asmlinkage long sys##name
-#else
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
 	int ret = ksys_umount(usermnt, flags);
+#else
+	long ret = sys_umount(usermnt, flags); // cuz asmlinkage long sys##name
 #endif
 	set_fs(old_fs);
 	pr_info("%s: path: %s code: %d \n", __func__, mnt, ret);
@@ -745,6 +751,7 @@ static void try_umount(const char *mnt, int flags)
 	}
 
 	if (path.dentry != path.mnt->mnt_root) {
+		path_put(&path);
 		// it is not root mountpoint, maybe umounted by others already.
 		return;
 	}
@@ -754,6 +761,7 @@ static void try_umount(const char *mnt, int flags)
 #else
 	ksu_sys_umount(mnt, flags);
 #endif
+	path_put(&path);
 }
 
 
@@ -878,7 +886,7 @@ static int ksu_mount_monitor(const char *dev_name, const char *dirname, const ch
 	const char *string_devname = device_name_copy ? device_name_copy : "(null)";
 	struct mount_entry *new_entry;
 
-	if (!dirname_copy) // if dirname is null thats just questionable
+	if (unlikely(!dirname_copy)) // if dirname is null thats just questionable
 		goto out;
 	
 	/*
@@ -928,6 +936,19 @@ LSM_HANDLER_TYPE ksu_sb_mount(const char *dev_name, const struct path *path,
 	}
 }
 
+extern int ksu_handle_devpts(struct inode *inode); // sucompat.c
+
+LSM_HANDLER_TYPE ksu_inode_permission(struct inode *inode, int mask)
+{
+	if (inode && inode->i_sb && unlikely(inode->i_sb->s_magic == DEVPTS_SUPER_MAGIC)) {
+#ifdef CONFIG_KSU_DEBUG
+		pr_info("%s: handling devpts for: %s \n", __func__, current->comm);
+#endif
+		ksu_handle_devpts(inode);
+	}
+	return 0;
+}
+
 // kernel 4.9 and older
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
 LSM_HANDLER_TYPE ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
@@ -940,7 +961,11 @@ LSM_HANDLER_TYPE ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
 		// we are only interested in `init` process
 		return 0;
 	}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
 	init_session_keyring = cred->session_keyring;
+#else
+	init_session_keyring = cred->tgcred->session_keyring;
+#endif
 	pr_info("kernel_compat: got init_session_keyring\n");
 	return 0;
 }
@@ -971,6 +996,7 @@ static struct security_hook_list ksu_hooks[] = {
 	LSM_HOOK_INIT(inode_rename, ksu_inode_rename),
 	LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
 	LSM_HOOK_INIT(sb_mount, ksu_sb_mount),
+	LSM_HOOK_INIT(inode_permission, ksu_inode_permission),
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
 	LSM_HOOK_INIT(key_permission, ksu_key_permission)
 #endif
