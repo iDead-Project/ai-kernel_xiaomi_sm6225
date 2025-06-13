@@ -761,7 +761,6 @@ static void try_umount(const char *mnt, int flags)
 #else
 	ksu_sys_umount(mnt, flags);
 #endif
-	path_put(&path);
 }
 
 
