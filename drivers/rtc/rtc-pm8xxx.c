@@ -467,9 +467,18 @@ static int pm8xxx_rtc_probe(struct platform_device *pdev)
 	if (rc < 0)
 		return rc;
 
+	/*
+	 * Added wake up capability logic for RTC alarm based on DTS entry.
+	 */
+	if (of_property_read_bool(pdev->dev.of_node, "qcom,disable-alarm-wakeup")) {
+		device_set_wakeup_capable(&pdev->dev, false);
+	}
+
 	rc =  rtc_register_device(rtc_dd->rtc);
 	if (rc < 0)
 		return rc;
+	
+	dev_dbg(&pdev->dev, "Probe success RTC !!\n");
 
 	return pm8xxx_rtc_init_alarm(rtc_dd);
 }
@@ -497,15 +506,6 @@ static int pm8xxx_rtc_freeze(struct device *dev)
 	struct pm8xxx_rtc *rtc_dd = dev_get_drvdata(dev);
 
 	devm_free_irq(rtc_dd->rtc_dev, rtc_dd->rtc_alarm_irq, rtc_dd);
-
-	/*
-	 * Added wake up capability logic for RTC alarm based on DTS entry.
-	 */
-	if (of_property_read_bool(pdev->dev.of_node, "qcom,disable-alarm-wakeup")) {
-		device_set_wakeup_capable(&pdev->dev, false);
-	}
-
-	dev_dbg(&pdev->dev, "Probe success RTC !!\n");
 	return 0;
 }
 
