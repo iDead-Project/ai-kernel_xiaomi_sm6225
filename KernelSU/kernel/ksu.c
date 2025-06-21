@@ -13,6 +13,22 @@
 #include "ksu.h"
 #include "throne_tracker.h"
 
+unsigned int enable_ksu = 1;
+
+static int __init read_kernelsu_state(char *s)
+{
+	if (s)
+		enable_ksu = simple_strtoul(s, NULL, 0);
+
+	return 1;
+}
+__setup("ksu.enabled=", read_kernelsu_state);
+
+unsigned int get_ksu_state(void)
+{
+	return enable_ksu;
+}
+
 static struct workqueue_struct *ksu_workqueue;
 
 bool ksu_queue_work(struct work_struct *work)
@@ -101,6 +117,8 @@ int __init kernelsu_init(void)
 {
 	pr_info("Initialized on: %s (%s) with ksuver: %s%s\n", UTS_RELEASE, UTS_MACHINE, __stringify(KSU_VERSION), EXTRA_FEATURES);
 
+	pr_info("Initialized on: %s (%s) with ksuver: %s%s\n", UTS_RELEASE, UTS_MACHINE, __stringify(KSU_VERSION), EXTRA_FEATURES);
+
 #ifdef CONFIG_KSU_DEBUG
 	pr_alert("*************************************************************");
 	pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
@@ -124,6 +142,9 @@ int __init kernelsu_init(void)
 
 void kernelsu_exit(void)
 {
+	if (enable_ksu < 1)
+		return;
+	
 	ksu_allowlist_exit();
 
 	ksu_throne_tracker_exit();
