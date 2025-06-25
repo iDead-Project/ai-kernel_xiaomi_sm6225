@@ -113,7 +113,7 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 	if (cass_cmp(b->util, a->util))
 		goto done;
 
-	/* Prefer the CPU that isn't the single fastest one in the system */Add commentMore actions
+	/* Prefer the CPU that isn't the single fastest one in the system */
 	if (cass_cmp(cass_big_cpus(b), cass_big_cpus(a)))
 		goto done;
 
@@ -205,9 +205,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 			 */
 			if (!uc_min) {
 				/* Discard any previous non-idle candidate */
-				if (!has_idle &&
-			    	uc_min <= arch_scale_min_freq_capacity(cpu) &&
-			    	!cass_big_cpus(curr))
+				if (!has_idle && !cass_big_cpus(curr))
 					best = curr;
 				has_idle = true;
 			}
