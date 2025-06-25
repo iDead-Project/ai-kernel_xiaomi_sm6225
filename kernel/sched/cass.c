@@ -77,6 +77,18 @@ void cass_cpu_util(struct cass_cpu_cand *c, int this_cpu, bool sync)
 	c->cap_no_therm = c->cap_orig - min(c->hard_util, c->cap_orig - 1);
 }
 
+static __always_inline
+bool cass_big_cpus(const struct cass_cpu_cand *c)
+{
+	/*
+	 * In our device case, the CPU doesn't have prime core ( SM6225 / SD680 )
+	 * So, i adapt it with Big CPU assignment instead of Prime CPU
+	 * At least, 2 CPU's being avoided using CASS 
+	 */
+	return ( c->cpu == nr_cpu_ids - 1 || c->cpu == nr_cpu_ids - 2 ) &&
+	       arch_scale_cpu_capacity(nr_cpu_ids - 2) != SCHED_CAPACITY_SCALE;
+}
+
 /* Returns true if @a is a better CPU than @b */
 static __always_inline
 bool cass_cpu_better(const struct cass_cpu_cand *a,
@@ -99,6 +111,10 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 
 	/* Prefer the CPU with lower relative utilization */
 	if (cass_cmp(b->util, a->util))
+		goto done;
+
+	/* Prefer the CPU that isn't the single fastest one in the system */Add commentMore actions
+	if (cass_cmp(cass_big_cpus(b), cass_big_cpus(a)))
 		goto done;
 
 	/* Prefer the CPU that is idle (only relevant for uclamped tasks) */
@@ -180,15 +196,18 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 * sync wakes, treat the current CPU as idle if @current is the
 		 * only running task.
 		 */
+		curr->cpu = cpu;
 		if ((sync && cpu == this_cpu && rq->nr_running == 1) ||
 		    available_idle_cpu(cpu) || sched_idle_cpu(cpu)) {
 			/*
-			 * A non-idle candidate may be better when @p is uclamp
+			 * A non-idle candidate may be better when for energy
 			 * boosted. Otherwise, always prefer idle candidates.
 			 */
 			if (!uc_min) {
 				/* Discard any previous non-idle candidate */
-				if (!has_idle)
+				if (!has_idle &&
+			    	uc_min <= arch_scale_min_freq_capacity(cpu) &&
+			    	!cass_big_cpus(curr))
 					best = curr;
 				has_idle = true;
 			}
@@ -210,7 +229,6 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		}
 
 		/* Get this CPU's capacity and utilization */
-		curr->cpu = cpu;
 		cass_cpu_util(curr, this_cpu, sync);
 
 		/*
