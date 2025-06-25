@@ -23,6 +23,7 @@
 #else
 #include <linux/sched.h> /* fatal_signal_pending */
 #endif
+#include <linux/slab.h>
 
 #include "allowlist.h"
 #include "klog.h" // IWYU pragma: keep
@@ -93,73 +94,11 @@ struct user_arg_ptr {
 	} ptr;
 };
 
-static const char __user *get_user_arg_ptr(struct user_arg_ptr argv, int nr)
+// since _ksud handler only uses argv and envp for comparisons
+// this can probably work
+// adapted from ksu_handle_execveat_ksud
+static int ksu_handle_bprm_ksud(const char *filename, const char *argv1, const char *envp_hex)
 {
-	const char __user *native;
-
-#ifdef CONFIG_COMPAT
-	if (unlikely(argv.is_compat)) {
-		compat_uptr_t compat;
-
-		if (get_user(compat, argv.ptr.compat + nr))
-			return ERR_PTR(-EFAULT);
-
-		return compat_ptr(compat);
-	}
-#endif
-
-	if (get_user(native, argv.ptr.native + nr))
-		return ERR_PTR(-EFAULT);
-
-	return native;
-}
-
-/*
- * count() counts the number of strings in array ARGV.
- */
-
-/*
- * Make sure old GCC compiler can use __maybe_unused,
- * Test passed in 4.4.x ~ 4.9.x when use GCC.
- */
-
-static int __maybe_unused count(struct user_arg_ptr argv, int max)
-{
-	int i = 0;
-
-	if (argv.ptr.native != NULL) {
-		for (;;) {
-			const char __user *p = get_user_arg_ptr(argv, i);
-
-			if (!p)
-				break;
-
-			if (IS_ERR(p))
-				return -EFAULT;
-
-			if (i >= max)
-				return -E2BIG;
-			++i;
-
-			if (fatal_signal_pending(current))
-				return -ERESTARTNOHAND;
-			cond_resched();
-		}
-	}
-	return i;
-}
-
-// IMPORTANT NOTE: the call from execve_handler_pre WON'T provided correct value for envp and flags in GKI version
-int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
-			     struct user_arg_ptr *argv,
-			     struct user_arg_ptr *envp, int *flags)
-{
-	if (!ksu_execveat_hook) {
-		return 0;
-	}
-
-	struct filename *filename;
-
 	static const char app_process[] = "/system/bin/app_process";
 	static bool first_app_process = true;
 
@@ -169,112 +108,173 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
 	static const char old_system_init[] = "/init";
 	static bool init_second_stage_executed = false;
 
-	if (!filename_ptr)
+	// return early when disabled
+	if (!ksu_execveat_hook)
 		return 0;
 
-	filename = *filename_ptr;
-	if (IS_ERR(filename)) {
+	if (!filename)
 		return 0;
-	}
 
-	if (unlikely(!memcmp(filename->name, system_bin_init,
-			     sizeof(system_bin_init) - 1) &&
-		     argv)) {
-		// /system/bin/init executed
-		int argc = count(*argv, MAX_ARG_STRINGS);
-		pr_info("/system/bin/init argc: %d\n", argc);
-		if (argc > 1 && !init_second_stage_executed) {
-			const char __user *p = get_user_arg_ptr(*argv, 1);
-			if (p && !IS_ERR(p)) {
-				char first_arg[16];
-				ksu_strncpy_from_user_nofault(
-					first_arg, p, sizeof(first_arg));
-				pr_info("/system/bin/init first arg: %s\n",
-					first_arg);
-				if (!strcmp(first_arg, "second_stage")) {
-					pr_info("/system/bin/init second_stage executed\n");
-					ksu_apply_kernelsu_rules();
-					init_second_stage_executed = true;
-					ksu_android_ns_fs_check();
-				}
-			} else {
-				pr_err("/system/bin/init parse args err!\n");
-			}
-		}
-	} else if (unlikely(!memcmp(filename->name, old_system_init,
-				    sizeof(old_system_init) - 1) &&
-			    argv)) {
-		// /init executed
-		int argc = count(*argv, MAX_ARG_STRINGS);
-		pr_info("/init argc: %d\n", argc);
-		if (argc > 1 && !init_second_stage_executed) {
-			/* This applies to versions between Android 6 ~ 7 */
-			const char __user *p = get_user_arg_ptr(*argv, 1);
-			if (p && !IS_ERR(p)) {
-				char first_arg[16];
-				ksu_strncpy_from_user_nofault(
-					first_arg, p, sizeof(first_arg));
-				pr_info("/init first arg: %s\n", first_arg);
-				if (!strcmp(first_arg, "--second-stage")) {
-					pr_info("/init second_stage executed\n");
-					ksu_apply_kernelsu_rules();
-					init_second_stage_executed = true;
-					ksu_android_ns_fs_check();
-				}
-			} else {
-				pr_err("/init parse args err!\n");
-			}
-		} else if (argc == 1 && !init_second_stage_executed && envp) {
-			/* This applies to versions between Android 8 ~ 9  */
-			int envc = count(*envp, MAX_ARG_STRINGS);
-			if (envc > 0) {
-				int n;
-				for (n = 1; n <= envc; n++) {
-					const char __user *p =
-						get_user_arg_ptr(*envp, n);
-					if (!p || IS_ERR(p)) {
-						continue;
-					}
-					char env[256];
-					// Reading environment variable strings from user space
-					if (ksu_strncpy_from_user_nofault(
-						    env, p, sizeof(env)) < 0)
-						continue;
-					// Parsing environment variable names and values
-					char *env_name = env;
-					char *env_value = strchr(env, '=');
-					if (env_value == NULL)
-						continue;
-					// Replace equal sign with string terminator
-					*env_value = '\0';
-					env_value++;
-					// Check if the environment variable name and value are matching
-					if (!strcmp(env_name,
-						    "INIT_SECOND_STAGE") &&
-					    (!strcmp(env_value, "1") ||
-					     !strcmp(env_value, "true"))) {
-						pr_info("/init second_stage executed\n");
-						ksu_apply_kernelsu_rules();
-						init_second_stage_executed =
-							true;
-						ksu_android_ns_fs_check();
-					}
-				}
-			}
+	// debug! remove me!
+	pr_info("%s: filaname: %s argv1: %s \n", __func__, filename, argv1);
+	pr_info("%s: envp (hex): %s\n", __func__, envp_hex);
+
+	if (init_second_stage_executed) 
+		goto first_app_process;
+
+	// /system/bin/init with argv1
+	if (!init_second_stage_executed 
+		&& (!memcmp(filename, system_bin_init, sizeof(system_bin_init) - 1))) {
+		if (argv1 && !strcmp(argv1, "second_stage")) {
+			pr_info("%s: /system/bin/init second_stage executed\n", __func__);
+			ksu_apply_kernelsu_rules();
+			init_second_stage_executed = true;
+			ksu_android_ns_fs_check();
 		}
 	}
 
-	if (unlikely(first_app_process && !memcmp(filename->name, app_process,
-						  sizeof(app_process) - 1))) {
+	// /init with argv1
+	if (!init_second_stage_executed 
+		&& (!memcmp(filename, old_system_init, sizeof(old_system_init) - 1))) {
+		if (argv1 && !strcmp(argv1, "--second-stage")) {
+			pr_info("%s: /init --second-stage executed\n", __func__);
+			ksu_apply_kernelsu_rules();
+			init_second_stage_executed = true;
+			ksu_android_ns_fs_check();
+		}
+	}
+
+	// /init without argv1/useless-argv1 but usable envp
+	// ksu_bprm_check passed it packed, so for pattern
+	// 494E49545F5345434F4E445F53544147453D31 = INIT_SECOND_STAGE=1
+	// 494E49545F5345434F4E445F53544147453D74727565 = INIT_SECOND_STAGE=true
+	// untested! TODO: test and debug me!
+	if (!init_second_stage_executed && envp_hex
+		&& (!memcmp(filename, old_system_init, sizeof(old_system_init) - 1))) {
+		if (strstr(envp_hex, "494E49545F5345434F4E445F53544147453D31")
+			|| strstr(envp_hex, "494E49545F5345434F4E445F53544147453D74727565") ) {
+			pr_info("%s: /init +envp: INIT_SECOND_STAGE executed\n", __func__);
+			ksu_apply_kernelsu_rules();
+			init_second_stage_executed = true;
+			ksu_android_ns_fs_check();
+		}
+	}
+
+first_app_process:
+	if (first_app_process && !memcmp(filename, app_process, sizeof(app_process) - 1)) {
 		first_app_process = false;
-		pr_info("exec app_process, /data prepared, second_stage: %d\n",
-			init_second_stage_executed);
-		ksu_on_post_fs_data(); // we keep this for old ksud
+		pr_info("%s: exec app_process, /data prepared, second_stage: %d\n", __func__, init_second_stage_executed);
+		ksu_on_post_fs_data();
 		stop_execve_hook();
 	}
 
 	return 0;
 }
+
+int ksu_handle_pre_ksud(const char *filename)
+{
+
+	if (likely(!ksu_execveat_hook))
+		return 0;
+
+	// not /system/bin/init, not /init, not /system/bin/app_process (64/32 thingy)
+	// return 0;
+	if (likely(strcmp(filename, "/system/bin/init") && strcmp(filename, "/init")
+		&& !strstarts(filename, "/system/bin/app_process") ))
+		return 0;
+
+	if (!current || !current->mm)
+		return 0;
+
+	// https://elixir.bootlin.com/linux/v4.14.1/source/include/linux/mm_types.h#L429
+	// unsigned long arg_start, arg_end, env_start, env_end;
+	unsigned long arg_start = current->mm->arg_start;
+	unsigned long arg_end = current->mm->arg_end;
+	unsigned long env_start = current->mm->env_start;
+	unsigned long env_end = current->mm->env_end;
+
+	size_t arg_len = arg_end - arg_start;
+	size_t envp_len = env_end - env_start;
+
+	if (arg_len == 0 || envp_len == 0) // this wont make sense, filter it
+		goto out;
+
+	char *args = kmalloc(arg_len + 1, GFP_ATOMIC);
+	char *envp = kmalloc(envp_len + 1, GFP_ATOMIC);
+	char *envp_hex = kmalloc(envp_len * 2 + 1, GFP_ATOMIC); // x2 since bin2hex
+	if (!args || !envp || !envp_hex)
+		goto out;
+
+	// we cant use strncpy on here, else it will truncate once it sees \0
+	if (ksu_copy_from_user_retry(args, (void __user *)arg_start, arg_len))
+		goto out;
+
+	if (ksu_copy_from_user_retry(envp, (void __user *)env_start, envp_len))
+		goto out;
+
+	args[arg_len] = '\0';
+
+#ifdef CONFIG_KSU_DEBUG
+	char *envp_n = envp;
+	unsigned int envc = 1;
+	do {
+		pr_info("%s: envp[%d]: %s\n", __func__, envc, envp_n);
+		envp_n += strlen(envp_n) + 1;
+		envc++;
+	} while (*envp_n && envp_n < envp_n + envp_len);
+	// ^ basically as long as envp_n is less than env_end
+	// while its still a valid char *
+	// we can get actual envc from bprm though from bprm->envc
+	// but that method wont work on sys_execve
+#endif
+
+	// I fail to simplify the loop so, lets just pack it
+	bin2hex(envp_hex, envp, envp_len);
+	envp_hex[envp_len * 2] = '\0';
+
+	// debug!
+	//pr_info("%s: envp (hex): %s\n", __func__, envp_hex);
+
+	// we only need argv1 !
+	// abuse strlen here since it only gets length up to \0
+	char *argv1 = args + strlen(args) + 1;
+	if (argv1 >= args + arg_len) // out of bounds!
+		argv1 = "";
+
+	// pass whole for envp?!!
+	// pr_info("%s: fname: %s argv1: %s \n", __func__, filename, argv1);
+	ksu_handle_bprm_ksud(filename, argv1, envp_hex);
+
+out:
+	kfree(args);
+	kfree(envp);
+	kfree(envp_hex);
+
+	return 0;
+}
+
+#ifdef KSU_USE_STRUCT_FILENAME
+__maybe_unused int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+			     struct user_arg_ptr *argv, struct user_arg_ptr *envp,
+			     int *flags)
+{
+	return 0;
+#if 0
+	// return early when disabled
+	if (!ksu_execveat_hook)
+		return 0;
+
+	if (!filename_ptr)
+		return 0;
+
+	struct filename *filename = *filename_ptr;
+	if (IS_ERR(filename))
+		return 0;
+
+	return ksu_handle_pre_ksud((char *)filename->name);
+#endif
+}
+#endif // KSU_USE_STRUCT_FILENAME
 
 static ssize_t (*orig_read)(struct file *, char __user *, size_t, loff_t *);
 static ssize_t (*orig_read_iter)(struct kiocb *, struct iov_iter *);
@@ -328,7 +328,7 @@ int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
 		return 0;
 	}
 
-	if (!d_is_reg(file->f_path.dentry)) {
+	if (!S_ISREG(file->f_path.dentry->d_inode->i_mode)) {
 		return 0;
 	}
 
@@ -386,10 +386,12 @@ int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
 	if (orig_read) {
 		fops_proxy.read = read_proxy;
 	}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0) || defined(KSU_HAS_FOP_READ_ITER)
 	orig_read_iter = file->f_op->read_iter;
 	if (orig_read_iter) {
 		fops_proxy.read_iter = read_iter_proxy;
 	}
+#endif
 	// replace the file_operations
 	file->f_op = &fops_proxy;
 	read_count_append = rc_count;
@@ -463,35 +465,74 @@ bool ksu_is_safe_mode()
 	return false;
 }
 
-/* 
- * ksu_handle_execve_ksud, execve_ksud handler for non kprobe
- * adapted from sys_execve_handler_pre 
- * https://github.com/tiann/KernelSU/commit/2027ac3
- */
-__maybe_unused int ksu_handle_execve_ksud(const char __user *filename_user,
-			const char __user *const __user *__argv)
+#if 0
+// execve_ksud handlers for non kprobe
+static int ksu_common_execve_ksud(const char __user *filename_user,
+			struct user_arg_ptr *argv)
 {
-	struct user_arg_ptr argv = { .ptr.native = __argv };
-	struct filename filename_in, *filename_p;
 	char path[32];
 
 	// return early if disabled.
-	if (!ksu_execveat_hook) {
+	if (!ksu_execveat_hook)
 		return 0;
-	}
 
 	if (!filename_user)
 		return 0;
 
-	memset(path, 0, sizeof(path));
-	ksu_strncpy_from_user_nofault(path, filename_user, 32);
+	long len = ksu_strncpy_from_user_nofault(path, filename_user, 32);
+	if (len <= 0)
+		return 0;
 
-	// this is because ksu_handle_execveat_ksud calls it filename->name
-	filename_in.name = path;
-	filename_p = &filename_in;
-    
-	return ksu_handle_execveat_ksud(AT_FDCWD, &filename_p, &argv, NULL, NULL);
+	path[sizeof(path) - 1] = '\0';
+
+	return ksu_handle_pre_ksud(path);
 }
+#endif
+
+__maybe_unused int ksu_handle_execve_ksud(const char __user *filename_user,
+			const char __user *const __user *__argv)
+{
+	return 0;
+#if 0
+	struct user_arg_ptr argv = { .ptr.native = __argv };
+	return ksu_common_execve_ksud(filename_user, &argv);
+#endif
+}
+
+#if defined(CONFIG_COMPAT)
+__maybe_unused int ksu_handle_compat_execve_ksud(const char __user *filename_user,
+			const compat_uptr_t __user *__argv)
+{
+	return 0;
+#if 0
+	struct user_arg_ptr argv = { .ptr.compat = __argv };
+	return ksu_common_execve_ksud(filename_user, &argv);
+#endif
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+#include "objsec.h" // task_security_struct
+bool is_ksu_transition(const struct task_security_struct *old_tsec,
+			const struct task_security_struct *new_tsec)
+{
+	static u32 ksu_sid;
+	char *secdata;
+	u32 seclen;
+	bool allowed = false;
+
+	if (!ksu_sid)
+		security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &ksu_sid);
+
+	if (security_secid_to_secctx(old_tsec->sid, &secdata, &seclen))
+		return false;
+
+	allowed = (!strcmp("u:r:init:s0", secdata) && new_tsec->sid == ksu_sid);
+	security_release_secctx(secdata, seclen);
+	
+	return allowed;
+}
+#endif
 
 static void stop_vfs_read_hook()
 {
