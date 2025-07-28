@@ -23,7 +23,6 @@
 #else
 #include <linux/sched.h> /* fatal_signal_pending */
 #endif
-#include <linux/slab.h>
 
 #include "allowlist.h"
 #include "klog.h" // IWYU pragma: keep
@@ -64,15 +63,15 @@ bool ksu_input_hook __read_mostly = true;
 
 u32 ksu_devpts_sid;
 
-void ksu_on_post_fs_data(void)
+void on_post_fs_data(void)
 {
 	static bool done = false;
 	if (done) {
-		pr_info("ksu_on_post_fs_data already done\n");
+		pr_info("on_post_fs_data already done\n");
 		return;
 	}
 	done = true;
-	pr_info("ksu_on_post_fs_data!\n");
+	pr_info("on_post_fs_data!\n");
 	ksu_load_allow_list();
 	// sanity check, this may influence the performance
 	stop_input_hook();
@@ -81,23 +80,10 @@ void ksu_on_post_fs_data(void)
 	pr_info("devpts sid: %d\n", ksu_devpts_sid);
 }
 
-#define MAX_ARG_STRINGS 0x7FFFFFFF
-struct user_arg_ptr {
-#ifdef CONFIG_COMPAT
-	bool is_compat;
-#endif
-	union {
-		const char __user *const __user *native;
-#ifdef CONFIG_COMPAT
-		const compat_uptr_t __user *compat;
-#endif
-	} ptr;
-};
-
 // since _ksud handler only uses argv and envp for comparisons
 // this can probably work
 // adapted from ksu_handle_execveat_ksud
-static int ksu_handle_bprm_ksud(const char *filename, const char *argv1, const char *envp_hex)
+static int ksu_handle_bprm_ksud(const char *filename, const char *argv1, const char *envp, size_t envp_len)
 {
 	static const char app_process[] = "/system/bin/app_process";
 	static bool first_app_process = true;
@@ -115,11 +101,11 @@ static int ksu_handle_bprm_ksud(const char *filename, const char *argv1, const c
 	if (!filename)
 		return 0;
 
-	// debug! remove me!
-	pr_info("%s: filaname: %s argv1: %s \n", __func__, filename, argv1);
-	pr_info("%s: envp (hex): %s\n", __func__, envp_hex);
 
-	if (init_second_stage_executed) 
+	// debug! remove me!
+	pr_info("%s: filename: %s argv1: %s envp_len: %zu\n", __func__, filename, argv1, envp_len);
+
+	if (init_second_stage_executed)
 		goto first_app_process;
 
 	// /system/bin/init with argv1
@@ -127,7 +113,7 @@ static int ksu_handle_bprm_ksud(const char *filename, const char *argv1, const c
 		&& (!memcmp(filename, system_bin_init, sizeof(system_bin_init) - 1))) {
 		if (argv1 && !strcmp(argv1, "second_stage")) {
 			pr_info("%s: /system/bin/init second_stage executed\n", __func__);
-			ksu_apply_kernelsu_rules();
+			apply_kernelsu_rules();
 			init_second_stage_executed = true;
 			ksu_android_ns_fs_check();
 		}
@@ -138,23 +124,31 @@ static int ksu_handle_bprm_ksud(const char *filename, const char *argv1, const c
 		&& (!memcmp(filename, old_system_init, sizeof(old_system_init) - 1))) {
 		if (argv1 && !strcmp(argv1, "--second-stage")) {
 			pr_info("%s: /init --second-stage executed\n", __func__);
-			ksu_apply_kernelsu_rules();
+			apply_kernelsu_rules();
 			init_second_stage_executed = true;
 			ksu_android_ns_fs_check();
 		}
 	}
 
 	// /init without argv1/useless-argv1 but usable envp
-	// ksu_bprm_check passed it packed, so for pattern
-	// 494E49545F5345434F4E445F53544147453D31 = INIT_SECOND_STAGE=1
-	// 494E49545F5345434F4E445F53544147453D74727565 = INIT_SECOND_STAGE=true
 	// untested! TODO: test and debug me!
-	if (!init_second_stage_executed && envp_hex
-		&& (!memcmp(filename, old_system_init, sizeof(old_system_init) - 1))) {
-		if (strstr(envp_hex, "494E49545F5345434F4E445F53544147453D31")
-			|| strstr(envp_hex, "494E49545F5345434F4E445F53544147453D74727565") ) {
+	if (!init_second_stage_executed && (!memcmp(filename, old_system_init, sizeof(old_system_init) - 1))) {
+		
+		// we hunt for "INIT_SECOND_STAGE"
+		const char *envp_n = envp;
+		unsigned int envc = 1;
+		do {
+			if (strstarts(envp_n, "INIT_SECOND_STAGE"))
+				break;
+			envp_n += strlen(envp_n) + 1;
+			envc++;
+		} while (envp_n < envp + envp_len);
+		pr_info("%s: envp[%d]: %s\n", __func__, envc, envp_n);
+		
+		if (!strcmp(envp_n, "INIT_SECOND_STAGE=1")
+			|| !strcmp(envp_n, "INIT_SECOND_STAGE=true") ) {
 			pr_info("%s: /init +envp: INIT_SECOND_STAGE executed\n", __func__);
-			ksu_apply_kernelsu_rules();
+			apply_kernelsu_rules();
 			init_second_stage_executed = true;
 			ksu_android_ns_fs_check();
 		}
@@ -164,7 +158,7 @@ first_app_process:
 	if (first_app_process && !memcmp(filename, app_process, sizeof(app_process) - 1)) {
 		first_app_process = false;
 		pr_info("%s: exec app_process, /data prepared, second_stage: %d\n", __func__, init_second_stage_executed);
-		ksu_on_post_fs_data();
+		on_post_fs_data();
 		stop_execve_hook();
 	}
 
@@ -173,7 +167,6 @@ first_app_process:
 
 int ksu_handle_pre_ksud(const char *filename)
 {
-
 	if (likely(!ksu_execveat_hook))
 		return 0;
 
@@ -196,23 +189,25 @@ int ksu_handle_pre_ksud(const char *filename)
 	size_t arg_len = arg_end - arg_start;
 	size_t envp_len = env_end - env_start;
 
-	if (arg_len == 0 || envp_len == 0) // this wont make sense, filter it
-		goto out;
+	if (arg_len <= 0 || envp_len <= 0) // this wont make sense, filter it
+		return 0;
 
-	char *args = kmalloc(arg_len + 1, GFP_ATOMIC);
-	char *envp = kmalloc(envp_len + 1, GFP_ATOMIC);
-	char *envp_hex = kmalloc(envp_len * 2 + 1, GFP_ATOMIC); // x2 since bin2hex
-	if (!args || !envp || !envp_hex)
-		goto out;
+	#define ARGV_MAX 32  // this is enough for argv1
+	#define ENVP_MAX 256  // this is enough for INIT_SECOND_STAGE
+	char args[ARGV_MAX];
+	size_t argv_copy_len = (arg_len > ARGV_MAX) ? ARGV_MAX : arg_len;
+	char envp[ENVP_MAX];
+	size_t envp_copy_len = (envp_len > ENVP_MAX) ? ENVP_MAX : envp_len;
 
 	// we cant use strncpy on here, else it will truncate once it sees \0
-	if (ksu_copy_from_user_retry(args, (void __user *)arg_start, arg_len))
-		goto out;
+	if (ksu_copy_from_user_retry(args, (void __user *)arg_start, argv_copy_len))
+		return 0;
 
-	if (ksu_copy_from_user_retry(envp, (void __user *)env_start, envp_len))
-		goto out;
+	if (ksu_copy_from_user_retry(envp, (void __user *)env_start, envp_copy_len))
+		return 0;
 
-	args[arg_len] = '\0';
+	args[ARGV_MAX - 1] = '\0';
+	envp[ENVP_MAX - 1] = '\0';
 
 #ifdef CONFIG_KSU_DEBUG
 	char *envp_n = envp;
@@ -221,60 +216,17 @@ int ksu_handle_pre_ksud(const char *filename)
 		pr_info("%s: envp[%d]: %s\n", __func__, envc, envp_n);
 		envp_n += strlen(envp_n) + 1;
 		envc++;
-	} while (*envp_n && envp_n < envp_n + envp_len);
-	// ^ basically as long as envp_n is less than env_end
-	// while its still a valid char *
-	// we can get actual envc from bprm though from bprm->envc
-	// but that method wont work on sys_execve
+	} while (envp_n < envp + envp_copy_len);
 #endif
-
-	// I fail to simplify the loop so, lets just pack it
-	bin2hex(envp_hex, envp, envp_len);
-	envp_hex[envp_len * 2] = '\0';
-
-	// debug!
-	//pr_info("%s: envp (hex): %s\n", __func__, envp_hex);
 
 	// we only need argv1 !
 	// abuse strlen here since it only gets length up to \0
 	char *argv1 = args + strlen(args) + 1;
-	if (argv1 >= args + arg_len) // out of bounds!
+	if (argv1 >= args + argv_copy_len) // out of bounds!
 		argv1 = "";
 
-	// pass whole for envp?!!
-	// pr_info("%s: fname: %s argv1: %s \n", __func__, filename, argv1);
-	ksu_handle_bprm_ksud(filename, argv1, envp_hex);
-
-out:
-	kfree(args);
-	kfree(envp);
-	kfree(envp_hex);
-
-	return 0;
+	return ksu_handle_bprm_ksud(filename, argv1, envp, envp_copy_len);
 }
-
-#ifdef KSU_USE_STRUCT_FILENAME
-__maybe_unused int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
-			     struct user_arg_ptr *argv, struct user_arg_ptr *envp,
-			     int *flags)
-{
-	return 0;
-#if 0
-	// return early when disabled
-	if (!ksu_execveat_hook)
-		return 0;
-
-	if (!filename_ptr)
-		return 0;
-
-	struct filename *filename = *filename_ptr;
-	if (IS_ERR(filename))
-		return 0;
-
-	return ksu_handle_pre_ksud((char *)filename->name);
-#endif
-}
-#endif // KSU_USE_STRUCT_FILENAME
 
 static ssize_t (*orig_read)(struct file *, char __user *, size_t, loff_t *);
 static ssize_t (*orig_read_iter)(struct kiocb *, struct iov_iter *);
@@ -465,38 +417,10 @@ bool ksu_is_safe_mode()
 	return false;
 }
 
-#if 0
-// execve_ksud handlers for non kprobe
-static int ksu_common_execve_ksud(const char __user *filename_user,
-			struct user_arg_ptr *argv)
-{
-	char path[32];
-
-	// return early if disabled.
-	if (!ksu_execveat_hook)
-		return 0;
-
-	if (!filename_user)
-		return 0;
-
-	long len = ksu_strncpy_from_user_nofault(path, filename_user, 32);
-	if (len <= 0)
-		return 0;
-
-	path[sizeof(path) - 1] = '\0';
-
-	return ksu_handle_pre_ksud(path);
-}
-#endif
-
 __maybe_unused int ksu_handle_execve_ksud(const char __user *filename_user,
 			const char __user *const __user *__argv)
 {
 	return 0;
-#if 0
-	struct user_arg_ptr argv = { .ptr.native = __argv };
-	return ksu_common_execve_ksud(filename_user, &argv);
-#endif
 }
 
 #if defined(CONFIG_COMPAT)
@@ -504,10 +428,6 @@ __maybe_unused int ksu_handle_compat_execve_ksud(const char __user *filename_use
 			const compat_uptr_t __user *__argv)
 {
 	return 0;
-#if 0
-	struct user_arg_ptr argv = { .ptr.compat = __argv };
-	return ksu_common_execve_ksud(filename_user, &argv);
-#endif
 }
 #endif
 

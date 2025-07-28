@@ -6,10 +6,6 @@
 #include "linux/version.h"
 #include "linux/key.h"
 
-extern long ksu_strncpy_from_user_nofault(char *dst,
-					  const void __user *unsafe_addr,
-					  long count);
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
 extern struct key *init_session_keyring;
 #endif
@@ -36,15 +32,11 @@ __attribute__((hot))
 static long ksu_copy_from_user_retry(void *to, 
 		const void __user *from, unsigned long count)
 {
-	// _nofault does access_ok by itself already
 	long ret = ksu_copy_from_user_nofault(to, from, count);
 	if (likely(!ret))
 		return ret;
 
 	// we faulted! fallback to slow path
-	if (unlikely(!ksu_access_ok(from, count)))
-		return -EFAULT;
-
 	return copy_from_user(to, from, count);
 }
 

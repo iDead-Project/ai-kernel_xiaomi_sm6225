@@ -16,7 +16,18 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
 
 obj-$(CONFIG_KSU) += kernelsu.o
 
-ccflags-y += -DKSU_VERSION=12103
+# .git is a text file while the module is imported by 'git submodule add'.
+ifeq ($(shell test -e $(srctree)/$(src)/../.git; echo $$?),0)
+$(shell cd $(srctree)/$(src); /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin [ -f ../.git/shallow ] && git fetch --unshallow)
+KSU_GIT_VERSION := $(shell cd $(srctree)/$(src); /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin git rev-list --count HEAD)
+# ksu_version: major * 10000 + git version + 200 for historical reasons
+$(eval KSU_VERSION=$(shell expr 10000 + $(KSU_GIT_VERSION) + 126))
+$(info -- KernelSU version: $(KSU_VERSION))
+ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
+else # If there is no .git file, the default version will be passed.
+$(warning "KSU_GIT_VERSION not defined! It is better to make KernelSU a git submodule!")
+ccflags-y += -DKSU_VERSION=16
+endif
 
 ifeq ($(shell grep -q " current_sid(void)" $(srctree)/security/selinux/include/objsec.h; echo $$?),0)
 ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID
@@ -62,28 +73,19 @@ ifeq ($(shell grep -q "^extern void ext4_unregister_sysfs" $(srctree)/fs/ext4/ex
 ccflags-y += -DKSU_HAS_MODERN_EXT4
 endif
 
-# enable functions that use stuct filename when ksu_handle_execveat is found
-ifeq ($(shell grep -q "ksu_handle_execveat" $(srctree)/fs/exec.c; echo $$?),0)
-ccflags-y += -DKSU_USE_STRUCT_FILENAME
-endif
-
-ifeq ($(shell grep -q "ksu_handle_execveat" $(srctree)/arch/arm/kernel/sys_arm.c; echo $$?),0)
-ccflags-y += -DKSU_USE_STRUCT_FILENAME
-endif
-
 ifeq ($(shell grep -q "int path_umount" $(srctree)/fs/namespace.c; echo $$?),0)
 $(info -- KernelSU/compat: path_umount found)
 ccflags-y += -DKSU_HAS_PATH_UMOUNT
 endif
 
-ifeq ($(shell grep -q "strncpy_from_user_nofault" $(srctree)/include/linux/uaccess.h; echo $$?),0)
-$(info -- KernelSU/compat: strncpy_from_user_nofault found)
-ccflags-y += -DKSU_STRNCPY_FROM_USER_NOFAULT
+ifeq ($(shell grep -q "^long copy_from_user_nofault" $(srctree)/include/linux/uaccess.h; echo $$?),0)
+$(info -- KernelSU/compat: copy_from_user_nofault found)
+ccflags-y += -DKSU_COPY_FROM_USER_NOFAULT
 endif
 
-ifeq ($(shell grep -q "strncpy_from_unsafe_user" $(srctree)/include/linux/uaccess.h; echo $$?),0)
-$(info -- KernelSU/compat: strncpy_from_unsafe_user found)
-ccflags-y += -DKSU_STRNCPY_FROM_UNSAFE_USER
+ifeq ($(shell grep -q "^extern long probe_user_read" $(srctree)/include/linux/uaccess.h; echo $$?),0)
+$(info -- KernelSU/compat: probe_user_read found)
+ccflags-y += -DKSU_PROBE_USER_READ
 endif
 
 ifeq ($(shell grep -q "ssize_t kernel_read" $(srctree)/fs/read_write.c; echo $$?),0)
@@ -99,13 +101,4 @@ endif
 ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat
 ccflags-y += -Wno-declaration-after-statement -Wno-unused-function
 
-## For susfs stuff ##
-ifeq ($(shell test -e $(srctree)/fs/susfs.c; echo $$?),0)
-$(eval SUSFS_VERSION=$(shell cat $(srctree)/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g'))
-$(info )
-$(info -- SUSFS_VERSION: $(SUSFS_VERSION))
-else
-$(info -- You have not integrate susfs in your kernel.)
-$(info -- Read: https://gitlab.com/simonpunk/susfs4ksu)
-endif
 # Keep a new line here!! Because someone may append config
