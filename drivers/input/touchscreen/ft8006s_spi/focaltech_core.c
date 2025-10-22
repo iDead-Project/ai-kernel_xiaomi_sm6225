@@ -72,6 +72,7 @@ extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;
 struct fts_ts_data *fts_data;
 extern void set_fts_ts_variant(bool en);
 static bool delay_gesture = false;
+<<<<<<< HEAD
 extern void set_lcd_reset_gpio_keep_high(bool en);
 
 int lct_fts_tp_gesture_callback(bool flag)
@@ -94,6 +95,8 @@ int lct_fts_tp_gesture_callback(bool flag)
 	 }
     return 0;
 }
+=======
+>>>>>>> a6f734514787 (touchscreen | techpack/display: some refactoring and cleanups)
 
 #if LCT_TP_USB_PLUGIN
 void fts_ts_usb_event_callback(void)
@@ -1339,7 +1342,7 @@ static int drm_notifier_callback(struct notifier_block *self,
 {
     struct drm_notify_data *evdata = data;
     int *blank = NULL;
-    
+
     if (!evdata) {
         FTS_ERROR("evdata is null");
         return 0;
