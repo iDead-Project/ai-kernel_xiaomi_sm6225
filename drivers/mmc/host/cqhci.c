@@ -294,6 +294,9 @@ static void __cqhci_enable(struct cqhci_host *cq_host)
 	cqcfg |= CQHCI_ENABLE;
 	cqhci_writel(cq_host, cqcfg, CQHCI_CFG);
 
+	if (cqhci_readl(cq_host, CQHCI_CTL) & CQHCI_HALT)
+		cqhci_writel(cq_host, 0, CQHCI_CTL);
+
 	cqhci_writel(cq_host, lower_32_bits(cq_host->desc_dma_base),
 		     CQHCI_TDLBA);
 	cqhci_writel(cq_host, upper_32_bits(cq_host->desc_dma_base),
@@ -684,7 +687,7 @@ static int cqhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		mmc->cqe_on = true;
 		mmc_log_string(mmc, "cqhci: CQE on\n");
 		pr_debug("%s: cqhci: CQE on\n", mmc_hostname(mmc));
-		if (cqhci_readl(cq_host, CQHCI_CTL) && CQHCI_HALT) {
+		if (cqhci_readl(cq_host, CQHCI_CTL) & CQHCI_HALT) {
 			pr_err("%s: cqhci: CQE failed to exit halt state\n",
 			       mmc_hostname(mmc));
 		}
@@ -1104,7 +1107,7 @@ static bool cqhci_halt(struct mmc_host *mmc, unsigned int timeout)
  * layers will need to send a STOP command), however failing to halt complicates
  * the recovery, so set a timeout that would reasonably allow I/O to complete.
  */
-#define CQHCI_START_HALT_TIMEOUT	500
+#define CQHCI_START_HALT_TIMEOUT	5000
 
 static void cqhci_recovery_start(struct mmc_host *mmc)
 {

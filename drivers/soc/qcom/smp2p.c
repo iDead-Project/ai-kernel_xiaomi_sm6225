@@ -453,7 +453,7 @@ static int smp2p_update_bits(void *data, u32 mask, u32 value)
 	val &= ~mask;
 	val |= value;
 	writel(val, entry->value);
-        spin_unlock_irqrestore(&entry->lock, flags);
+	spin_unlock_irqrestore(&entry->lock, flags);
 	SMP2P_INFO("%d: %s: orig:0x%0x new:0x%0x\n",
 		   entry->smp2p->remote_pid, entry->name, orig, val);
 
@@ -616,7 +616,7 @@ static int qcom_smp2p_probe(struct platform_device *pdev)
 	smp2p->mbox_client.knows_txdone = true;
 	smp2p->mbox_chan = mbox_request_channel(&smp2p->mbox_client, 0);
 	if (IS_ERR(smp2p->mbox_chan)) {
-		if (PTR_ERR(smp2p->mbox_chan) != -ENODEV)
+		if (PTR_ERR(smp2p->mbox_chan) != -ENOENT)
 			return PTR_ERR(smp2p->mbox_chan);
 
 		smp2p->mbox_chan = NULL;

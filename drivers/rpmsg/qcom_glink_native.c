@@ -260,7 +260,7 @@ static const struct rpmsg_endpoint_ops glink_endpoint_ops;
 #define GLINK_CMD_TX_DATA_CONT		12
 #define GLINK_CMD_READ_NOTIF		13
 #define GLINK_CMD_RX_DONE_W_REUSE	14
-#define RPM_CMD_SIGNALS                 15
+#define GLINK_CMD_SIGNALS		15
 
 #define GLINK_FEATURE_INTENTLESS	BIT(1)
 
@@ -418,6 +418,8 @@ static void qcom_glink_send_read_notify(struct qcom_glink *glink)
 	msg.param1 = 0;
 	msg.param2 = 0;
 
+	GLINK_INFO(glink->ilc, "send READ NOTIFY cmd\n");
+
 	qcom_glink_tx_write(glink, &msg, sizeof(msg), NULL, 0);
 
 	mbox_send_message(glink->mbox_chan, NULL);
@@ -456,9 +458,15 @@ static int qcom_glink_tx(struct qcom_glink *glink,
 		spin_unlock_irqrestore(&glink->tx_lock, flags);
 
 		wait_event_timeout(glink->tx_avail_notify,
-				   qcom_glink_tx_avail(glink) >= tlen, 10 * HZ);
+				   (qcom_glink_tx_avail(glink) >= tlen
+				   || atomic_read(&glink->in_reset)), 10 * HZ);
 
 		spin_lock_irqsave(&glink->tx_lock, flags);
+
+		if (atomic_read(&glink->in_reset)) {
+			ret = -ECONNRESET;
+			goto out;
+		}
 
 		if (qcom_glink_tx_avail(glink) >= tlen)
 			glink->sent_read_notify = false;
@@ -670,9 +678,7 @@ static void qcom_glink_rx_done_work(struct kthread_work *work)
 		iid = intent->id;
 		reuse = intent->reuse;
 
-		cmd.id = reuse ? GLINK_CMD_RX_DONE_W_REUSE : GLINK_CMD_RX_DONE;
-		cmd.lcid = cid;
-		cmd.liid = iid;
+		__qcom_glink_rx_done(glink, channel, intent, true);
 
 		qcom_glink_tx(glink, &cmd, sizeof(cmd), NULL, 0, true);
 		if (!reuse) {
@@ -1230,7 +1236,7 @@ static int qcom_glink_send_signals(struct qcom_glink *glink,
 {
 	struct glink_msg msg;
 
-	msg.cmd = cpu_to_le16(RPM_CMD_SIGNALS);
+	msg.cmd = cpu_to_le16(GLINK_CMD_SIGNALS);
 	msg.param1 = cpu_to_le16(channel->lcid);
 	msg.param2 = cpu_to_le32(sigs);
 
@@ -1327,7 +1333,7 @@ static irqreturn_t qcom_glink_native_intr(int irq, void *data)
 			qcom_glink_handle_intent_req_ack(glink, param1, param2);
 			qcom_glink_rx_advance(glink, ALIGN(sizeof(msg), 8));
 			break;
-		case RPM_CMD_SIGNALS:
+		case GLINK_CMD_SIGNALS:
 			qcom_glink_handle_signals(glink, param1, param2);
 			qcom_glink_rx_advance(glink, ALIGN(sizeof(msg), 8));
 			break;
@@ -1639,7 +1645,7 @@ static int __qcom_glink_send(struct glink_channel *channel,
 		iid = intent->id;
 	}
 
-	if (wait && chunk_size > SZ_8K) {
+	if (wait && (chunk_size > SZ_8K)) {
 		chunk_size = SZ_8K;
 		left_size = len - chunk_size;
 	}
@@ -1760,6 +1766,7 @@ static void qcom_glink_rpdev_release(struct device *dev)
 {
 	struct rpmsg_device *rpdev = to_rpmsg_device(dev);
 
+	kfree(rpdev->driver_override);
 	kfree(rpdev);
 }
 

@@ -121,6 +121,9 @@ struct psi_trigger {
 	 */
 	u64 last_event_time;
 
+	/* Task that created the trigger */
+	char comm[TASK_COMM_LEN];
+	struct timer_list wdog_timer;
 };
 
 struct psi_group {
