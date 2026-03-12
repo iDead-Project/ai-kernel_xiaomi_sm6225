@@ -666,7 +666,6 @@ static void qcom_glink_rx_done_work(struct kthread_work *work)
 		u32 liid;
 	} __packed cmd;
 
-	unsigned int cid = channel->lcid;
 	unsigned int iid;
 	bool reuse;
 	unsigned long flags;
