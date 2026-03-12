@@ -2105,8 +2105,9 @@ static int fg_calculate_iocv(struct sm_fg_chip *sm)
 	}
 
     roop_max = (data & 0x000F);
-    if(roop_max > FG_INIT_B_LEN)
+    if(roop_max > FG_INIT_B_LEN) {
         roop_max = FG_INIT_B_LEN;
+      }
 
 	roop_start = FG_REG_START_LB_V;
 	for (i = roop_start; i < roop_start + roop_max; i++)
@@ -2998,17 +2999,19 @@ static int fg_common_parse_dt(struct sm_fg_chip *sm)
         sm->misc = 0x0800;
 
 	/* IOCV MAN MODE */
-	if (of_property_read_bool(np, "sm,iocv_man_mode"))
+	if (of_property_read_bool(np, "sm,iocv_man_mode")) {
 		sm->iocv_man_mode = true;
-	else
+	} else {
 		sm->iocv_man_mode = 0;
 	pr_info("IOCV_MAN_MODE = %d\n", sm->iocv_man_mode);
+	}
 
     /* Aging */
     rc = of_property_read_u32(np, "sm,aging_ctrl",
                         &sm->aging_ctrl);
-    if (rc < 0)
+    if (rc < 0) {
         sm->aging_ctrl = -EINVAL;
+	}
 
 	/*decimal rate*/
 	len = 0;
@@ -3109,10 +3112,11 @@ static int fg_common_parse_dt(struct sm_fg_chip *sm)
         sm->common_param_version = -EINVAL;
 
 	/* Shutdown feature */
-	if (of_property_read_bool(np, "sm,shutdown-delay-enable"))
+	if (of_property_read_bool(np, "sm,shutdown-delay-enable")) {
 		sm->shutdown_delay_enable = true;
-	else
+	} else {
 		sm->shutdown_delay_enable = 0;
+	}
 
 	return 0;
 }
