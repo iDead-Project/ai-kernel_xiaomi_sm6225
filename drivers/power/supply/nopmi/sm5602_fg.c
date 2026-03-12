@@ -2995,8 +2995,9 @@ static int fg_common_parse_dt(struct sm_fg_chip *sm)
     /* MISC */
     rc = of_property_read_u32(np, "sm,misc",
                         &sm->misc);
-    if (rc < 0)
+    if (rc < 0) {
         sm->misc = 0x0800;
+	}
 
 	/* IOCV MAN MODE */
 	if (of_property_read_bool(np, "sm,iocv_man_mode")) {
@@ -3108,8 +3109,9 @@ static int fg_common_parse_dt(struct sm_fg_chip *sm)
     /* Paramater Number */
     rc = of_property_read_u32(np, "sm,param_version",
                         &sm->common_param_version);
-    if (rc < 0)
+    if (rc < 0) {
         sm->common_param_version = -EINVAL;
+	}
 
 	/* Shutdown feature */
 	if (of_property_read_bool(np, "sm,shutdown-delay-enable")) {
