@@ -390,8 +390,6 @@ static ssize_t f2fs_sbi_show(struct f2fs_attr *a,
 		return snprintf(buf, PAGE_SIZE, "%llu\n",
 			sbi->revoked_atomic_block);
 
-	ui = (unsigned int *)(ptr + a->offset);
-
 	return __sbi_show_value(a, sbi, buf, ptr + a->offset);
 }
 
@@ -414,7 +412,7 @@ static void __sbi_store_value(struct f2fs_attr *a,
 		break;
 	default:
 		f2fs_bug_on(sbi, 1);
-		f2fs_msg(sbi->sb, KERN_ERR, "store sysfs node value with wrong type");
+		f2fs_err(sbi, "store sysfs node value with wrong type");
 	}
 }
 
@@ -845,11 +843,6 @@ static struct f2fs_attr f2fs_attr_##_name = {			\
 	.size = _size						\
 }
 
-#define F2FS_RO_ATTR(struct_type, struct_name, name, elname)	\
-	F2FS_ATTR_OFFSET(struct_type, name, 0444,		\
-		f2fs_sbi_show, NULL,				\
-		offsetof(struct struct_name, elname))
-
 #define F2FS_RW_ATTR(struct_type, struct_name, name, elname)	\
 	F2FS_ATTR_OFFSET(struct_type, name, 0644,		\
 		f2fs_sbi_show, f2fs_sbi_store,			\
@@ -988,7 +981,6 @@ F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, max_fragment_chunk, max_fragment_chunk);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, max_fragment_hole, max_fragment_hole);
 
 /* For atomic write */
-F2FS_RO_ATTR(F2FS_SBI, f2fs_sb_info, current_atomic_write, current_atomic_write);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, peak_atomic_write, peak_atomic_write);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, committed_atomic_block, committed_atomic_block);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, revoked_atomic_block, revoked_atomic_block);
@@ -1085,7 +1077,6 @@ static struct attribute *f2fs_attrs[] = {
 	ATTR_LIST(gc_reclaimed_segments),
 	ATTR_LIST(max_fragment_chunk),
 	ATTR_LIST(max_fragment_hole),
-	ATTR_LIST(current_atomic_write),
 	ATTR_LIST(peak_atomic_write),
 	ATTR_LIST(committed_atomic_block),
 	ATTR_LIST(revoked_atomic_block),
