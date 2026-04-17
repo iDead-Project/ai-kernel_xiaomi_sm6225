@@ -72,31 +72,6 @@ extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;
 struct fts_ts_data *fts_data;
 extern void set_fts_ts_variant(bool en);
 static bool delay_gesture = false;
-<<<<<<< HEAD
-extern void set_lcd_reset_gpio_keep_high(bool en);
-
-int lct_fts_tp_gesture_callback(bool flag)
-{
-    struct fts_ts_data *ts_data = fts_data;
-    if (ts_data->suspended) {
-        delay_gesture = true;
-        FTS_INFO("The gesture mode will be %s the next time you wakes up.", flag?"enabled":"disabled");
-        return -1;
-    }
-     //check this funct
-    set_lct_tp_gesture_status(flag);
-    //set_lcd_reset_gpio_keep_high(flag);
-    if (flag) {
-        	ts_data->gesture_mode = ENABLE;
-			
-	}
-    else {
-        	ts_data->gesture_mode = DISABLE;
-	 }
-    return 0;
-}
-=======
->>>>>>> a6f734514787 (touchscreen | techpack/display: some refactoring and cleanups)
 
 #if LCT_TP_USB_PLUGIN
 void fts_ts_usb_event_callback(void)
