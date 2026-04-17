@@ -25,7 +25,6 @@
 #include <linux/debugfs.h>
 #include <linux/bitops.h>
 #include <linux/math64.h>
-#include <asm/neon.h>
 #include "sc8551_reg.h"
 
 
@@ -42,7 +41,7 @@ typedef enum {
 	ADC_MAX_NUM,
 }ADC_CH;
 
-static float sc8551_adc_lsb[] = {
+static const u32 sc8551_adc_lsb[ADC_MAX_NUM] = {
 	[ADC_IBUS]	= SC8551_IBUS_ADC_LSB,
 	[ADC_VBUS]	= SC8551_VBUS_ADC_LSB,
 	[ADC_VAC]	= SC8551_VAC_ADC_LSB,
@@ -301,16 +300,20 @@ struct sc8551 {
 static int __sc8551_read_byte(struct sc8551 *sc, u8 reg, u8 *data)
 {
 	s32 ret;
+	int cnt = 3;
 
-	ret = i2c_smbus_read_byte_data(sc->client, reg);
-	if (ret < 0) {
-		sc_err("i2c read fail: can't read from reg 0x%02X\n", reg);
-		return ret;
+	while (cnt--) {
+		ret = i2c_smbus_read_byte_data(sc->client, reg);
+		if (ret < 0) {
+			sc_err("i2c read fail: can't read from reg 0x%02X\n", reg);
+		} else {
+			*data = (u8) ret;
+			return 0;
+		}
+		udelay(200);
 	}
 
-	*data = (u8) ret;
-
-	return 0;
+	return ret;
 }
 
 static int __sc8551_write_byte(struct sc8551 *sc, int reg, u8 val)
@@ -980,6 +983,7 @@ static int sc8551_get_adc_data(struct sc8551 *sc, int channel,  int *result)
 	int ret;
 	u8 val_l, val_h;
 	u16 val;
+	u64 temp;
 
 	if(channel < 0 || channel >= ADC_MAX_NUM) return 0;
 
@@ -992,9 +996,8 @@ static int sc8551_get_adc_data(struct sc8551 *sc, int channel,  int *result)
 	*result = val;
 
 	if (sc->chip_vendor == SC8551) {
-		kernel_neon_begin();
-		*result = (int)(val * sc8551_adc_lsb[channel]);
-		kernel_neon_end();
+		temp = (u64)val * sc8551_adc_lsb[channel];
+		*result = div_u64(temp, SC8551_ADC_SCALE);
 	}
 	return 0;
 }

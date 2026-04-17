@@ -61,7 +61,7 @@ enum snd_jack_types {
 	SND_JACK_OC_HPHL        = 0x0040,
 	SND_JACK_OC_HPHR        = 0x0080,
 	SND_JACK_UNSUPPORTED    = 0x0100,
-	SND_JACK_MICROPHONE2    = 0x0200,
+        SND_JACK_MICROPHONE2    = 0x0200,
 	SND_JACK_ANC_HEADPHONE  = SND_JACK_HEADPHONE | SND_JACK_MICROPHONE |
 				  SND_JACK_MICROPHONE2,
 
@@ -73,6 +73,9 @@ enum snd_jack_types {
 	SND_JACK_BTN_4		= 0x0800,
 	SND_JACK_BTN_5		= 0x0400,
 };
+
+/* Keep in sync with definitions above */
+#define SND_JACK_SWITCH_TYPES 6
 
 struct snd_jack {
 	struct list_head kctl_list;

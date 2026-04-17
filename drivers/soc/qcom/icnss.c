@@ -15,7 +15,9 @@
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#ifdef CONFIG_ICNSS_DEBUG
 #include <linux/debugfs.h>
+#endif
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
@@ -1063,8 +1065,16 @@ static int icnss_driver_event_server_arrive(void *data)
 	int ret = 0;
 	bool ignore_assert = false;
 
-	if (!penv)
+	if (!penv) {
+		kfree(data);
 		return -ENODEV;
+	}
+
+	if (test_bit(ICNSS_MODEM_SHUTDOWN, &penv->state)) {
+		icnss_pr_dbg("WLFW server arrive: Modem is down");
+		kfree(data);
+		return -EINVAL;
+	}
 
 	set_bit(ICNSS_WLFW_EXISTS, &penv->state);
 	clear_bit(ICNSS_FW_DOWN, &penv->state);
@@ -1715,13 +1725,19 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 			icnss_pr_err("Not able to Collect msa0 segment dump, Apps permissions not assigned %d\n",
 				     ret);
 		}
+		clear_bit(ICNSS_MODEM_SHUTDOWN, &priv->state);
 		goto out;
 	}
+
+	if (code == SUBSYS_AFTER_SHUTDOWN)
+		clear_bit(ICNSS_MODEM_SHUTDOWN, &priv->state);
 
 	if (code != SUBSYS_BEFORE_SHUTDOWN)
 		goto out;
 
 	priv->is_ssr = true;
+
+	set_bit(ICNSS_MODEM_SHUTDOWN, &priv->state);
 
 	icnss_update_state_send_modem_shutdown(priv, data);
 
@@ -3086,6 +3102,9 @@ static int icnss_stats_show_state(struct seq_file *s, struct icnss_priv *priv)
 			continue;
 		case ICNSS_DEL_SERVER:
 			seq_puts(s, "DEL SERVER");
+			continue;
+		case ICNSS_MODEM_SHUTDOWN:
+			seq_puts(s, "MODEM SHUTDOWN");
 		}
 
 		seq_printf(s, "UNKNOWN-%d", i);
@@ -3502,32 +3521,12 @@ static int icnss_debugfs_create(struct icnss_priv *priv)
 out:
 	return ret;
 }
-#else
-static int icnss_debugfs_create(struct icnss_priv *priv)
-{
-	int ret = 0;
-	struct dentry *root_dentry;
-
-	root_dentry = debugfs_create_dir("icnss", NULL);
-
-	if (IS_ERR(root_dentry)) {
-		ret = PTR_ERR(root_dentry);
-		icnss_pr_err("Unable to create debugfs %d\n", ret);
-		return ret;
-	}
-
-	priv->root_dentry = root_dentry;
-
-	debugfs_create_file("stats", 0600, root_dentry, priv,
-			    &icnss_stats_fops);
-	return 0;
-}
-#endif
 
 static void icnss_debugfs_destroy(struct icnss_priv *priv)
 {
 	debugfs_remove_recursive(priv->root_dentry);
 }
+#endif
 
 static void icnss_sysfs_create(struct icnss_priv *priv)
 {
@@ -3884,7 +3883,9 @@ static int icnss_probe(struct platform_device *pdev)
 
 	icnss_enable_recovery(priv);
 
+#ifdef CONFIG_ICNSS_DEBUG
 	icnss_debugfs_create(priv);
+#endif
 
 	icnss_sysfs_create(priv);
 
@@ -3919,7 +3920,9 @@ static int icnss_remove(struct platform_device *pdev)
 
 	icnss_unregister_power_supply_notifier(penv);
 
+#ifdef CONFIG_ICNSS_DEBUG
 	icnss_debugfs_destroy(penv);
+#endif
 
 	icnss_sysfs_destroy(penv);
 

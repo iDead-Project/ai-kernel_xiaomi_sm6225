@@ -120,4 +120,7 @@ extern void dump_tasks(struct mem_cgroup *memcg,
 extern int sysctl_oom_dump_tasks;
 extern int sysctl_oom_kill_allocating_task;
 extern int sysctl_panic_on_oom;
+/* calls for LMK reaper */
+#define ULMK_MAGIC "lmkd"
+
 #endif /* _INCLUDE_LINUX_OOM_H */

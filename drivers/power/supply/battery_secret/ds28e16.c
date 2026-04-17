@@ -380,8 +380,9 @@ void Virtual_cmd_readStatus(void)
 	write_byte(CMD_RELEASE_BYTE);
         mdelay(50);
 
-for(num=0;num<11;num++)
+for(num=0;num<11;num++) {
 	read_byte();
+    }
 
 	ow_reset();
 }

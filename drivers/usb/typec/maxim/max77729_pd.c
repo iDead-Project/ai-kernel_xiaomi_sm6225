@@ -120,8 +120,9 @@ void max77729_select_pdo(int num)
 
 	pd_data->pd_noti.sink_status.selected_pdo_num = num;
 
-	if (pd_data->pd_noti.event != PDIC_NOTIFY_EVENT_PD_SINK)
+	if (pd_data->pd_noti.event != PDIC_NOTIFY_EVENT_PD_SINK) {
 		pd_data->pd_noti.event = PDIC_NOTIFY_EVENT_PD_SINK;
+	}
 
 	/* if (pd_data->pd_noti.sink_status.current_pdo_num == pd_data->pd_noti.sink_status.selected_pdo_num) { */
 		/* max77729_process_pd(g_usbc_data); */

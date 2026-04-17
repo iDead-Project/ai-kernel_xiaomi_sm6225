@@ -432,13 +432,14 @@ static void usbpd_pm_update_cp_status(struct usbpd_pm *pdpm)
 
     usbpd_check_cp_psy(pdpm);
 
-    if (!pdpm->cp_psy)
+    if (!pdpm->cp_psy) {
         return;
+	}
 
     /*ret = power_supply_get_property(pdpm->cp_psy,
             POWER_SUPPLY_PROP_SC_BATTERY_VOLTAGE, &val);
     if (!ret)
-        pdpm->cp.vbat_volt = val.intval; 
+        pdpm->cp.vbat_volt = val.intval;
 
     ret = power_supply_get_property(pdpm->cp_psy,
             POWER_SUPPLY_PROP_SC_BATTERY_CURRENT, &val);

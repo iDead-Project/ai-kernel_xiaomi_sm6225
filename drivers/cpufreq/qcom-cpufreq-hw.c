@@ -26,7 +26,7 @@
 #define CLK_HW_DIV			2
 #define GT_IRQ_STATUS			BIT(2)
 #define MAX_FN_SIZE			20
-#define LIMITS_POLLING_DELAY_MS		1
+#define LIMITS_POLLING_DELAY_MS		4
 
 #define CYCLE_CNTR_OFFSET(c, m, acc_count)				\
 			(acc_count ? ((c - cpumask_first(m) + 1) * 4) : 0)
@@ -64,7 +64,7 @@ struct skipped_freq {
 	u32 high_temp_index;
 	u32 low_temp_index;
 	u32 final_index;
-	spinlock_t lock;
+	raw_spinlock_t lock;
 };
 
 struct cpufreq_qcom {
@@ -90,7 +90,7 @@ struct cpufreq_qcom {
 struct cpufreq_counter {
 	u64 total_cycle_counter;
 	u32 prev_cycle_counter;
-	spinlock_t lock;
+	raw_spinlock_t lock;
 };
 
 struct cpufreq_cooling_cdev {
@@ -99,6 +99,13 @@ struct cpufreq_cooling_cdev {
 	struct thermal_cooling_device *cdev;
 	struct device_node *np;
 };
+
+struct cpufreq_qcom_boost {
+	struct cpufreq_qcom *c;
+	unsigned int max_index;
+};
+
+static DEFINE_PER_CPU(struct cpufreq_qcom_boost, cpufreq_boost_pcpu);
 
 static const u16 cpufreq_qcom_std_offsets[REG_ARRAY_SIZE] = {
 	[REG_ENABLE]		= 0x0,
@@ -211,7 +218,7 @@ static bool dcvsh_core_count_change(struct cpufreq_qcom *c)
 	unsigned long freq, flags;
 	u32 index, regval;
 
-	spin_lock_irqsave(&c->skip_data.lock, flags);
+	raw_spin_lock_irqsave(&c->skip_data.lock, flags);
 	index = readl_relaxed(c->reg_bases[REG_PERF_STATE]);
 
 	freq = readl_relaxed(c->reg_bases[REG_DOMAIN_STATE]) & GENMASK(7, 0);
@@ -226,7 +233,7 @@ static bool dcvsh_core_count_change(struct cpufreq_qcom *c)
 		ret = true;
 	}
 
-	spin_unlock_irqrestore(&c->skip_data.lock, flags);
+	raw_spin_unlock_irqrestore(&c->skip_data.lock, flags);
 
 	return ret;
 }
@@ -270,7 +277,7 @@ u64 qcom_cpufreq_get_cpu_cycle_counter(int cpu)
 
 	cpu_domain = qcom_freq_domain_map[cpu];
 	cpu_counter = &qcom_cpufreq_counter[cpu];
-	spin_lock_irqsave(&cpu_counter->lock, flags);
+	raw_spin_lock_irqsave(&cpu_counter->lock, flags);
 
 	offset = CYCLE_CNTR_OFFSET(cpu, &cpu_domain->related_cpus,
 					accumulative_counter);
@@ -288,7 +295,7 @@ u64 qcom_cpufreq_get_cpu_cycle_counter(int cpu)
 		cpu_counter->prev_cycle_counter = val;
 	}
 	cycle_counter_ret = cpu_counter->total_cycle_counter;
-	spin_unlock_irqrestore(&cpu_counter->lock, flags);
+	raw_spin_unlock_irqrestore(&cpu_counter->lock, flags);
 
 	return cycle_counter_ret;
 }
@@ -302,10 +309,10 @@ qcom_cpufreq_hw_target_index(struct cpufreq_policy *policy,
 	unsigned long flags;
 
 	if (c->skip_data.skip && index == c->skip_data.high_temp_index) {
-		spin_lock_irqsave(&c->skip_data.lock, flags);
+		raw_spin_lock_irqsave(&c->skip_data.lock, flags);
 		writel_relaxed(c->skip_data.final_index,
 				c->reg_bases[REG_PERF_STATE]);
-		spin_unlock_irqrestore(&c->skip_data.lock, flags);
+		raw_spin_unlock_irqrestore(&c->skip_data.lock, flags);
 	} else {
 		writel_relaxed(index, c->reg_bases[REG_PERF_STATE]);
 	}
@@ -462,6 +469,16 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.ready		= qcom_cpufreq_ready,
 };
 
+static int cpuhp_qcom_online(unsigned int cpu)
+{
+	struct cpufreq_qcom_boost *b = &per_cpu(cpufreq_boost_pcpu, cpu);
+	struct cpufreq_qcom *c = b->c;
+
+	/* Set the max frequency by default before the governor takes over */
+	writel_relaxed(b->max_index, c->reg_bases[REG_PERF_STATE]);
+	return 0;
+}
+
 static int qcom_cpufreq_hw_read_lut(struct platform_device *pdev,
 				    struct cpufreq_qcom *c)
 {
@@ -476,7 +493,7 @@ static int qcom_cpufreq_hw_read_lut(struct platform_device *pdev,
 	if (!c->table)
 		return -ENOMEM;
 
-	spin_lock_init(&c->skip_data.lock);
+	raw_spin_lock_init(&c->skip_data.lock);
 	base_freq = c->reg_bases[REG_FREQ_LUT_TABLE];
 	base_volt = c->reg_bases[REG_VOLT_LUT_TABLE];
 
@@ -548,6 +565,10 @@ static int qcom_cpufreq_hw_read_lut(struct platform_device *pdev,
 
 	c->lut_max_entries = i;
 	c->table[i].frequency = CPUFREQ_TABLE_END;
+	for_each_cpu(cpu, &c->related_cpus) {
+		per_cpu(cpufreq_boost_pcpu, cpu).c = c;
+		per_cpu(cpufreq_boost_pcpu, cpu).max_index = i - 1;
+	}
 
 	if (c->skip_data.skip) {
 		pr_info("%s Skip: Index[%u], Frequency[%u], Core Count %u, Final Index %u Actual Index %u Prev_Freq[%u] Prev_Index[%u] Prev_CC[%u]\n",
@@ -745,13 +766,13 @@ static int cpufreq_hw_set_cur_state(struct thermal_cooling_device *cdev,
 	cpu_cdev->cpu_cooling_state = state;
 
 	if (state == CPUFREQ_HW_HIGH_TEMP_LEVEL) {
-		spin_lock_irqsave(&c->skip_data.lock, flags);
+		raw_spin_lock_irqsave(&c->skip_data.lock, flags);
 		c->skip_data.final_index = c->skip_data.high_temp_index;
-		spin_unlock_irqrestore(&c->skip_data.lock, flags);
+		raw_spin_unlock_irqrestore(&c->skip_data.lock, flags);
 	} else {
-		spin_lock_irqsave(&c->skip_data.lock, flags);
+		raw_spin_lock_irqsave(&c->skip_data.lock, flags);
 		c->skip_data.final_index = c->skip_data.low_temp_index;
-		spin_unlock_irqrestore(&c->skip_data.lock, flags);
+		raw_spin_unlock_irqrestore(&c->skip_data.lock, flags);
 	}
 
 	if (policy->cur != c->skip_data.freq)
@@ -853,13 +874,24 @@ static int qcom_cpufreq_hw_driver_probe(struct platform_device *pdev)
 	}
 
 	for_each_possible_cpu(cpu)
-		spin_lock_init(&qcom_cpufreq_counter[cpu].lock);
+		raw_spin_lock_init(&qcom_cpufreq_counter[cpu].lock);
 
 	rc = cpufreq_register_driver(&cpufreq_qcom_hw_driver);
 	if (rc) {
 		dev_err(&pdev->dev, "CPUFreq HW driver failed to register\n");
 		return rc;
 	}
+
+	rc = register_cpu_cycle_counter_cb(&cycle_counter_cb);
+	if (rc) {
+		dev_err(&pdev->dev, "CPUFreq HW driver failed to register\n");
+		return rc;
+	}
+
+	rc = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE, "qcom-cpufreq:online",
+				       cpuhp_qcom_online, NULL);
+	if (rc)
+		dev_err(&pdev->dev, "CPUHP callback setup failed, rc=%d\n", rc);
 
 	dev_dbg(&pdev->dev, "QCOM CPUFreq HW driver initialized\n");
 	of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);

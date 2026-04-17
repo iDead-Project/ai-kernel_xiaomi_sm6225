@@ -671,7 +671,7 @@ static int create_linear_device(struct dm_target *ti, dev_t dev,
 static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
 	dev_t uninitialized_var(dev);
-	struct android_metadata *metadata = NULL;
+	struct android_metadata *metadata;
 	int err = 0, i, mode;
 	char *key_id = NULL, *table_ptr, dummy, *target_device;
 	char *verity_table_args[VERITY_TABLE_ARGS + 2 + VERITY_TABLE_OPT_FEC_ARGS];
@@ -733,7 +733,7 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 		}
 		DMERR("Error while extracting metadata");
 		handle_error();
-		goto free_metadata;
+		return err;
 	}
 
 	if (verity_enabled) {
@@ -864,23 +864,25 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	}
 
 free_metadata:
-	if (metadata) {
-		kfree(metadata->header);
-		kfree(metadata->verity_table);
-	}
+	kfree(metadata->header);
+	kfree(metadata->verity_table);
 	kfree(metadata);
+
 	return err;
 }
 
 static int __init dm_android_verity_init(void)
 {
 	int r;
+#ifdef CONFIG_DEBUG_FS
 	struct dentry *file;
+#endif
 
 	r = dm_register_target(&android_verity_target);
 	if (r < 0)
 		DMERR("register failed %d", r);
 
+#ifdef CONFIG_DEBUG_FS
 	/* Tracks the status of the last added target */
 	debug_dir = debugfs_create_dir("android_verity", NULL);
 
@@ -910,14 +912,16 @@ static int __init dm_android_verity_init(void)
 	}
 
 end:
+#endif
 	return r;
 }
 
 static void __exit dm_android_verity_exit(void)
 {
+#ifdef CONFIG_DEBUG_FS
 	if (!IS_ERR_OR_NULL(debug_dir))
 		debugfs_remove_recursive(debug_dir);
-
+#endif
 	dm_unregister_target(&android_verity_target);
 }
 
